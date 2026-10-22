@@ -43,6 +43,14 @@ final class Glyph extends Drawable {
     static Glyph wifi(int level) { Glyph g = new Glyph(WIFI); g.level = level; return g; }
     private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
+    /** The tint set on this drawable; every paint, including local ones, must carry it. */
+    private ColorFilter filter;
+
+    private Paint local() {
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        p.setColorFilter(filter);
+        return p;
+    }
 
     Glyph(int kind) {
         this.kind = kind;
@@ -182,7 +190,7 @@ final class Glyph extends Drawable {
     private void wifi(Canvas c, float s) {
         // Three filled arcs and a dot, like the status-bar symbol; unlit bars are dimmed.
         float cx = s / 2f, cy = s * 0.80f;
-        Paint arc = new Paint(Paint.ANTI_ALIAS_FLAG);
+        Paint arc = local();
         arc.setStyle(Paint.Style.STROKE);
         arc.setStrokeCap(Paint.Cap.ROUND);
         arc.setStrokeWidth(s * 0.11f);
@@ -198,15 +206,21 @@ final class Glyph extends Drawable {
     }
 
     private void ethernet(Canvas c, float s) {
-        // Three linked boxes: the "network" symbol.
-        float w = s * 0.24f, h = s * 0.18f, r = s * 0.04f;
-        c.drawRoundRect(new RectF(s * 0.38f, s * 0.14f, s * 0.38f + w, s * 0.14f + h), r, r, fill);
-        c.drawRoundRect(new RectF(s * 0.10f, s * 0.66f, s * 0.10f + w, s * 0.66f + h), r, r, fill);
-        c.drawRoundRect(new RectF(s * 0.66f, s * 0.66f, s * 0.66f + w, s * 0.66f + h), r, r, fill);
-        c.drawLine(s * 0.5f, s * 0.32f, s * 0.5f, s * 0.5f, stroke);
-        c.drawLine(s * 0.22f, s * 0.5f, s * 0.78f, s * 0.5f, stroke);
-        c.drawLine(s * 0.22f, s * 0.5f, s * 0.22f, s * 0.66f, stroke);
-        c.drawLine(s * 0.78f, s * 0.5f, s * 0.78f, s * 0.66f, stroke);
+        // "<···>", the wired-network symbol from the Mac menu bar.
+        Paint p = local();
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setStrokeJoin(Paint.Join.ROUND);
+        p.setStrokeWidth(s * 0.10f);
+        p.setColor(0xFFFFFFFF);
+        Path l = new Path();
+        l.moveTo(s * 0.26f, s * 0.24f); l.lineTo(s * 0.06f, s * 0.5f); l.lineTo(s * 0.26f, s * 0.76f);
+        c.drawPath(l, p);
+        Path r = new Path();
+        r.moveTo(s * 0.74f, s * 0.24f); r.lineTo(s * 0.94f, s * 0.5f); r.lineTo(s * 0.74f, s * 0.76f);
+        c.drawPath(r, p);
+        fill.setColor(0xFFFFFFFF);
+        for (float x : new float[] { 0.34f, 0.5f, 0.66f }) c.drawCircle(s * x, s * 0.5f, s * 0.055f, fill);
     }
 
     private void offline(Canvas c, float s) {
@@ -221,7 +235,7 @@ final class Glyph extends Drawable {
         fill.setColor(SUN_YELLOW);
         c.drawCircle(cx, cy, r, fill);
         if (rays) {
-            Paint ray = new Paint(Paint.ANTI_ALIAS_FLAG);
+            Paint ray = local();
             ray.setStyle(Paint.Style.STROKE);
             ray.setStrokeCap(Paint.Cap.ROUND);
             ray.setStrokeWidth(s * 0.065f);
@@ -260,7 +274,7 @@ final class Glyph extends Drawable {
 
     private void fog(Canvas c, float s) {
         cloud(c, s, -s * 0.14f, 0xFFFFFFFF);
-        Paint l = new Paint(Paint.ANTI_ALIAS_FLAG);
+        Paint l = local();
         l.setStyle(Paint.Style.STROKE);
         l.setStrokeCap(Paint.Cap.ROUND);
         l.setStrokeWidth(s * 0.07f);
@@ -270,7 +284,7 @@ final class Glyph extends Drawable {
     }
 
     private void drops(Canvas c, float s, int colour, boolean snow) {
-        Paint d = new Paint(Paint.ANTI_ALIAS_FLAG);
+        Paint d = local();
         d.setColor(colour);
         d.setStyle(Paint.Style.STROKE);
         d.setStrokeCap(Paint.Cap.ROUND);
@@ -306,7 +320,7 @@ final class Glyph extends Drawable {
     }
 
     @Override public void setAlpha(int a) { stroke.setAlpha(a); fill.setAlpha(a); }
-    @Override public void setColorFilter(ColorFilter f) { stroke.setColorFilter(f); fill.setColorFilter(f); }
+    @Override public void setColorFilter(ColorFilter f) { filter = f; stroke.setColorFilter(f); fill.setColorFilter(f); invalidateSelf(); }
     @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
     @Override public int getIntrinsicWidth() { return 64; }
     @Override public int getIntrinsicHeight() { return 64; }

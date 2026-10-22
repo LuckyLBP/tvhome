@@ -10,6 +10,7 @@
 #   sh scripts/preview.sh photos <folder>  # push photos into the emulator only
 #   sh scripts/preview.sh dock [labels]    # placeholder dock items named like the TV's apps
 #   sh scripts/preview.sh dock off         # back to the emulator's real apps
+#   sh scripts/preview.sh network wifi:2   # show a network state: wifi[:1-3], ethernet, offline, real
 #   sh scripts/preview.sh stop
 #
 # One-time downloads (about 1.2 GB from dl.google.com), only when you choose to:
@@ -162,6 +163,17 @@ case "${1:-}" in
     e shell am force-stop "$PKG"
     e shell am start -W -n "$ACTIVITY" >/dev/null
     echo "Preview dock: ${2:-TV app names}"
+    ;;
+
+  network)
+    F=/sdcard/Android/data/$PKG/files/preview-network.txt
+    case "${2:-real}" in
+      real) e shell rm -f "$F" ;;
+      *) printf '%s\n' "$2" > "$OUT/.network.txt"; e push "$OUT/.network.txt" "$F" >/dev/null ;;
+    esac
+    e shell am force-stop "$PKG"
+    e shell am start -W -n "$ACTIVITY" >/dev/null
+    echo "Preview network: ${2:-real}"
     ;;
 
   stop)

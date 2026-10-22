@@ -338,6 +338,7 @@ public class MainActivity extends Activity {
         statusBar.setClipToPadding(false);
         statusGlass = new Glass(null, BLUR, 0, 0, px(CAP_BTN / 2f + CAP_PAD), GLASS_LIGHT, px(1.5f));
         statusGlass.setBorderColor(0x66FFFFFF);
+        statusGlass.setAdaptive(0x59000000);
         glasses.add(statusGlass);
         statusBar.setBackground(statusGlass);
         idWifiBtn = View.generateViewId();
@@ -367,6 +368,7 @@ public class MainActivity extends Activity {
         dockGlassView = new View(this);
         dockGlass = new Glass(null, BLUR, 0, 0, px(40), GLASS_LIGHT, px(2f));
         dockGlass.setBorderColor(0x8CFFFFFF);
+        dockGlass.setAdaptive(0x40000000);
         glasses.add(dockGlass);
         dockGlassView.setBackground(dockGlass);
         FrameLayout.LayoutParams gp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(170));
@@ -466,7 +468,8 @@ public class MainActivity extends Activity {
 
     /** Wi-Fi with its signal level, the network symbol for Ethernet, or crossed out offline. */
     private void updateNetwork() {
-        Glyph g;
+        Glyph g = previewNetwork();
+        if (g != null) { setNetworkGlyph(g); return; }
         try {
             ConnectivityManager cm = getSystemService(ConnectivityManager.class);
             Network n = cm.getActiveNetwork();
@@ -486,9 +489,38 @@ public class MainActivity extends Activity {
         } catch (Throwable t) {
             g = Glyph.wifi(3);
         }
+        setNetworkGlyph(g);
+    }
+
+    private void setNetworkGlyph(Glyph g) {
         boolean focused = wifiIcon.getParent() != null && ((View) wifiIcon.getParent()).isFocused();
         wifiIcon.setImageDrawable(g);
         if (focused) wifiIcon.setColorFilter(0xFF1C1C1E, PorterDuff.Mode.SRC_IN);
+    }
+
+    /**
+     * Preview only: the emulator is wired, so scripts/preview.sh can put "wifi:2", "ethernet"
+     * or "offline" in files/preview-network.txt to show each state. Never exists on the TV.
+     */
+    private Glyph previewNetwork() {
+        try {
+            java.io.File f = new java.io.File(getExternalFilesDir(null), "preview-network.txt");
+            if (!f.exists()) return null;
+            java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(f));
+            String v;
+            try { v = r.readLine(); } finally { r.close(); }
+            if (v == null) return null;
+            v = v.trim();
+            if (v.startsWith("wifi")) {
+                int level = 3;
+                int colon = v.indexOf(':');
+                if (colon > 0) level = Integer.parseInt(v.substring(colon + 1).trim());
+                return Glyph.wifi(Math.max(1, Math.min(3, level)));
+            }
+            if (v.equals("ethernet")) return new Glyph(Glyph.ETHERNET);
+            if (v.equals("offline")) return new Glyph(Glyph.OFFLINE);
+        } catch (Throwable ignored) { }
+        return null;
     }
 
     private void openNetwork() {

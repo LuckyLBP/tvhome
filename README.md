@@ -104,8 +104,10 @@ rounded-square shape: adaptive icons use their layers, square icons are cropped,
 round badges are set on a plate of their own outer colour, bare logos on white
 or near-black. Nothing is shipped; everything is made on the TV.
 
-**Top right**, the Wi-Fi symbol shows signal strength (or the network symbol on
-Ethernet, crossed out when offline) and opens network settings. The grid opens
+**Top right**, the Wi-Fi symbol shows signal strength (‹···› on Ethernet, as on a
+Mac; crossed out when offline) and opens network settings. The glass under it
+adapts: over a bright part of the photo it darkens so the white symbols stay
+readable. The grid opens
 the app drawer: everything on the TV (apps, HDMI inputs, Live TV, Play Store, TV
 settings) as a Launchpad-style grid. OK opens, long press adds to the dock, and
 the Settings button in its header opens the launcher's settings.
@@ -142,7 +144,8 @@ sh scripts/preview.sh photos ~/Pictures/tv # your photos, emulator only
 sh scripts/preview.sh watch                # rebuild + reload on every save
 ```
 
-`key up|down|left|right|ok|longok|back|home` drives it like the remote and
+`network wifi:1|wifi:2|wifi:3|ethernet|offline|real` shows each state of the
+status icon (the emulator itself is wired). `key up|down|left|right|ok|longok|back|home` drives it like the remote and
 `shot <name>` saves a screenshot to `.local/preview/`. The script only ever
 talks to an emulator: with none running it refuses instead of falling through
 to a TV on the network. The emulator runs Android TV 14 and has none of your
