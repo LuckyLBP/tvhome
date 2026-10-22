@@ -59,6 +59,8 @@ home_handler() {
 
 confirm() {
   [ "${YES:-}" = "1" ] && return 0
+  # No keyboard (run from a script or an agent): treat as "no", quietly.
+  { : </dev/tty; } 2>/dev/null || { echo "$1 [y/N] no (no keyboard; set YES=1 to agree)"; return 1; }
   printf '%s [y/N] ' "$1"
   read -r a </dev/tty || return 1
   case "$a" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
