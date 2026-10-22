@@ -20,8 +20,9 @@ tv_target() {
   esac
 }
 
-tv() { adb -s "$TV" "$@"; }
-tv_shell() { adb -s "$TV" shell "$@"; }
+# </dev/null: adb would otherwise swallow the stdin of a "while read" loop.
+tv() { adb -s "$TV" "$@" </dev/null; }
+tv_shell() { adb -s "$TV" shell "$@" </dev/null; }
 
 tv_connect() {
   case "$TV" in
@@ -59,7 +60,7 @@ home_handler() {
 confirm() {
   [ "${YES:-}" = "1" ] && return 0
   printf '%s [y/N] ' "$1"
-  read -r a
+  read -r a </dev/tty || return 1
   case "$a" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
 }
 

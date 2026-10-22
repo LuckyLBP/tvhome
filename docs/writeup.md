@@ -7,7 +7,7 @@ session on 22 October 2026, from a Mac, against a real TV in the room.
 ## The goal, and the first correction
 
 The owner has a 55-inch TV and wanted to "get rid of the OS and put my own
-software on it", with the Samsung-focused project
+software on it", with the Samsung-focused projects
 [CleanFrame](https://github.com/nthnclrk/CleanFrame) as the reference.
 
 Two facts reshaped the task immediately:
@@ -117,9 +117,12 @@ Everything uses `pm disable-user --user 0`, which hides and stops a package
 without deleting it. Each disabled package is appended to an undo file on the
 TV (`/data/local/tmp/tvhome-disabled.txt`); `scripts/undo.sh` re-enables them
 and restores the stock Home. Packages that `dumpsys` marks `PERSISTENT` (the
-Alexa bridge, among others) are skipped because they would not stay off. **At
-the time of writing the debloat step has not yet been run on the TV**; only the
-launcher is installed.
+Alexa bridge, among others) are skipped because they would not stay off. The
+safe tier was run on the TV at the end of the session: 42 packages off, one
+skipped as persistent, Live TV and the Home button verified afterwards. A bug
+surfaced on the first run: `adb shell` inside a `while read` loop consumed the
+rest of the package list from stdin, so only the first package was disabled;
+the fix is `</dev/null` on every adb call in `scripts/lib.sh`.
 
 ## The launcher, iteration by iteration
 
@@ -187,7 +190,8 @@ There were none.
 
 ## Still open
 
-- The ad/telemetry debloat has not been run yet.
+- The choice tier (Assistant, Alexa, Chromecast, stock YouTube and so on) was
+  deliberately left alone.
 - USB debugging is still on and should be turned off when finished.
 - The white-logo heuristic produces blobs for a few icons that are full-bleed
   artwork; those apps are mostly the preloads that get disabled anyway.
