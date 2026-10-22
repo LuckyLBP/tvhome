@@ -1,0 +1,7 @@
+out/
+key.jks
+key.pass
+.local/
+*.log
+wallpapers/*
+!wallpapers/README.md

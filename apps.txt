@@ -1,0 +1,18 @@
+# Default apps for the first row, one package per line, in order.
+# Only installed apps are shown. Edit the list on the TV later with a long press
+# on OK, or pass a new list with: sh scripts/install.sh <TV_IP> "pkg1,pkg2"
+# These are the streaming apps found installed on this TV on 2026-10-22, in a
+# sensible starting order. Reorder on the TV with a long press on OK.
+com.netflix.ninja                  # Netflix
+com.google.android.youtube.tv      # YouTube
+se.svt.android.svtplay             # SVT Play
+se.tv4.tv4playtab                  # TV4 Play
+com.viaplay.android                # Viaplay
+com.disney.disneyplus              # Disney+
+com.wbd.stream                     # Max
+com.skyshowtime.skyshowtime.google # SkyShowtime
+com.apple.atve.androidtv.appletv   # Apple TV
+com.amazon.amazonvideo.livingroom  # Prime Video
+com.plexapp.android                # Plex
+com.spotify.tv.android             # Spotify
+tv.twitch.android.app              # Twitch

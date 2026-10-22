@@ -1,0 +1,164 @@
+# Packages on Philips TPM171E TVs running Android TV 8.0 (2017/2018 PUS and OLED
+# series, TP Vision firmware). Read by scripts/debloat.sh.
+#
+# Tiers:
+#   [safe]   ads, promo rows, telemetry, store demo. Verified off on a
+#            65PUS8102/12 with the same platform and Android version, no crash
+#            loops over standby and reboots.
+#   [choice] works fine off, but you lose a feature. Asked one by one.
+#   [keep]   never turned off. Listed so you know what they are.
+#
+# Checked against this TV on 2026-10-22 (PH7M_EU_5596, Android 8.0): every
+# [safe] package marked "this TV" or without a note was present. Packages that
+# dumpsys marks PERSISTENT are skipped by debloat.sh automatically.
+#
+# Sources: cleanyourtv examples/philips-65pus8102 (TPM171E, Android 8.0) and
+# examples/philips-50pus8517 (Android 11), plus tv-detox docs/debloat.md.
+# Package names differ between firmware builds; scripts/candidates.sh shows what
+# your TV actually has. When in doubt, leave it on.
+
+[safe]
+# --- Google ad surfaces and first-run nags
+com.google.android.tvrecommendations               # Android TV "recommendations" content rows on the stock home
+com.google.android.leanbacklauncher.recommendations # older recommendations provider
+com.google.android.tvtutorials                      # first-run tutorials
+com.google.android.feedback                         # Market feedback agent
+com.google.android.partnersetup                     # partner attribution, setup only
+com.google.android.onetimeinitializer               # first-setup only
+com.google.android.sss.authbridge                   # "set up from phone" helper
+com.google.android.syncadapters.calendar            # calendar sync, no calendar app on a TV
+
+# --- Philips promo, telemetry, ACR
+org.droidtv.nettvrecommender     # Philips "Top Picks" promo row
+org.droidtv.recommendation       # backend for Top Picks
+org.droidtv.usagelogger          # boot stats, remote keypress counts, panel telemetry
+org.droidtv.candeebug            # "DAC" analytics uploader
+org.droidtv.gel                  # "GEL" metrics collector, runs inside candeebug; turn off both
+tv.inscape.tvclient.inscapeacr   # Inscape ACR: fingerprints whatever is on screen, HDMI included
+org.droidtv.demome               # retail store demo mode
+
+# --- Philips "Smart TV Collection" store and its preinstalled web apps
+org.droidtv.nettv.market         # Smart TV Collection app gallery
+org.droidtv.nettvapps            # NetTvApps manager
+org.droidtv.nettv_launcherapp    # NetTV launcher entry
+org.droidtv.nettvregistration    # Philips account registration for NetTV
+org.droidtv.nettvapp1814         # ARTE
+org.droidtv.nettvapp1984         # Dailymotion
+org.droidtv.nettvapp3071         # Cinetrailer (this TV)
+org.droidtv.nettvapp3073         # Cinetrailer (other firmware)
+org.droidtv.nettvapp3814         # TV5Monde
+org.droidtv.nettvapp4546         # Megogo
+org.droidtv.nettvapp4633         # RTVE
+org.droidtv.nettvapp4649         # SF Anytime
+org.droidtv.nettvapp4655         # Deezer
+org.droidtv.nettvapp4768         # France24
+org.droidtv.nettvapp4771         # Divan.TV
+org.droidtv.nettvapp4836         # Social TV
+org.droidtv.nettvapp4932         # free games
+org.droidtv.nettvapp5225         # Filmbox Live
+org.droidtv.nettvapp5251         # Min Bio
+org.droidtv.nettvapp5326         # Toon Goggles
+org.droidtv.nettvapp5512         # Fishing TV
+org.droidtv.nettvapp20004410     # Couchplay Games
+org.droidtv.nettvapp20004412     # Blockbuster Nordic
+org.droidtv.android.fitness      # Fitness Buddy
+org.droidtv.twittershare         # Twitter share overlay
+
+# --- Preinstalled apps nobody asked for
+com.gameloft.android.HEP.GloftANHP   # Gameloft game preload
+com.ted.android.tv                   # TED
+com.opera.sdk.example                # Opera TV SDK sample app
+com.media.playcast.PHILIPS.MTK       # GameFly Streaming, preinstalled game streaming
+com.tellybean.kahuna.client          # Tellybean video calling, preinstalled
+com.google.android.music             # Google Play Music (service shut down)
+com.google.android.videos            # Google Play Movies & TV
+com.google.android.play.games        # Play Games
+com.google.android.youtube.tvmusic   # YouTube Music
+
+[choice]
+com.google.android.katniss        # Google Assistant and voice search; the mic button on the remote stops working
+org.droidtv.amazonalexa           # Alexa bridge; live TV binds to it on some firmware, test zapping and EPG after
+org.droidtv.aurora                # ambient artwork screen
+org.droidtv.sticker               # "Sticker" promo overlay (store demo); harmless but untested off on this TV
+org.droidtv.dropboxprovider       # Dropbox source in the USB media browser
+org.droidtv.dlna                  # DLNA server/renderer; USB playback is unaffected
+org.droidtv.ipcontrol             # LAN control (Home Assistant etc.); keep if you use it
+org.droidtv.m7opapp               # satellite operator promo; keep if you use M7 operators
+com.google.android.youtube.tv     # stock YouTube; only if you replace it with SmartTube, the YouTube remote key may stop working
+com.google.android.marvin.talkback # TalkBack screen reader
+com.google.android.tts            # text to speech
+com.google.android.apps.mediashell # Chromecast built-in; off = no casting from your phone
+com.android.dreams.basic          # screensaver; keep it on an OLED
+com.netflix.ninja                 # Netflix (only if you never use it; the Netflix remote key then does nothing)
+com.amazon.amazonvideo.livingroom # Prime Video
+com.google.android.tvlauncher     # stock launcher; install.sh handles this one after the new Home is confirmed
+
+[keep]
+# --- Android and Google core
+com.google.android.gms                  # Play services
+com.google.android.gsf                  # Google services framework
+com.android.vending                     # Play Store
+com.android.tv.settings                 # Settings
+com.android.systemui                    # System UI
+com.android.bluetooth                   # Bluetooth and the remote
+com.android.packageinstaller            # installing apps
+com.google.android.inputmethod.latin    # keyboard
+com.google.android.tungsten.setupwraith # setup wizard
+com.google.android.tv.remote.service    # Android TV Remote app on a phone
+com.android.providers.tv                # channel/input database
+
+# --- Philips: tuner, inputs, remote, power, UI. Off = no live TV, no HDMI, or no remote.
+org.droidtv.playtv          # Live TV and source switching
+org.droidtv.xtv             # core TV service, JointSpace API (ports 1925/1926)
+org.droidtv.xtvsystem
+org.droidtv.channels
+org.droidtv.epgdata
+org.droidtv.dvbi
+org.droidtv.teletext
+org.droidtv.ci              # CI+ module
+org.droidtv.hdmiservice     # HDMI and CEC
+org.droidtv.euinstallertc   # channel installation
+org.droidtv.euinstallersat
+org.droidtv.hbbtvopapp
+org.droidtv.icp
+org.droidtv.sunrise
+org.droidtv.tvsystemui      # Philips system UI overlays
+org.droidtv.settings        # Philips settings
+org.droidtv.GlobalKey       # remote key handling
+org.droidtv.philipstvdrawer # side menu
+org.droidtv.homeintentresolver
+org.droidtv.contentexplorer # USB media player
+org.droidtv.nettvbrowser    # HbbTV handler and browser engine host; off = red button broken
+org.droidtv.eum             # e-manual and test wizards; hung the TV engine on another model when off
+org.droidtv.oad             # firmware updates
+org.droidtv.devicesetup
+org.droidtv.networkwizard
+org.droidtv.tv.tptvservice  # PERSISTENT on this TV
+org.droidtv.tv.permissions
+org.droidtv.tv.packageinfo
+org.droidtv.tv.frameworklogger # framework log sink; tiny, unclear what reads it, left alone
+org.droidtv.leanbackcustomizer # PERSISTENT; Philips launcher customisation
+org.droidtv.usbbreakin      # PERSISTENT; USB service
+org.droidtv.lkb             # local keypad board (the buttons on the TV itself)
+org.droidtv.menudataapp     # settings data backend
+org.droidtv.sam             # Service Alignment Mode (service menu)
+org.droidtv.csm             # Service Alignment Mode (service menu)
+org.droidtv.ui.strings
+org.droidtv.ui.tvwidget2k15
+org.droidtv.common.accesshiddenapi
+org.droidtv.factory
+com.mediatek.tvinput        # PERSISTENT
+com.mediatek.tunerservice
+com.mediatek.agent          # PERSISTENT
+com.mediatek.dmagent        # PERSISTENT
+com.mediatek.wifi
+tv.tptvservice              # name on other firmware
+tv.agent
+
+# --- Ambilight and calibration
+org.droidtv.ambiair
+org.droidtv.ambihuecommon
+org.droidtv.alhuewizard
+org.droidtv.audiocalibration
+org.droidtv.calmancalibrator
+org.droidtv.bluetoothaudiosink

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 320x180 banner shown by the stock launcher. A plain dark tile with a light bar. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <size android:width="320dp" android:height="180dp" />
+            <solid android:color="#FF111827" />
+        </shape>
+    </item>
+    <item android:left="40dp" android:top="80dp" android:right="40dp" android:bottom="80dp">
+        <shape android:shape="rectangle">
+            <corners android:radius="10dp" />
+            <solid android:color="#FFE5E7EB" />
+        </shape>
+    </item>
+</layer-list>
