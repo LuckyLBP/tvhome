@@ -39,6 +39,7 @@ wallpapers/                      your photos; packed into the APK by build.sh
 build.sh                         aapt2 + javac + d8 + apksigner, no Gradle
 scripts/install.sh               install, set Home, offer to turn off stock launcher
 scripts/wallpapers.sh            push photos to the TV without a rebuild (HEIC ok)
+scripts/preview.sh               live preview in an Android TV emulator on the Mac
 scripts/debloat.sh               turn off packages from the list, one prompt each
 scripts/undo.sh                  turn everything back on, restore stock Home
 scripts/check.sh                 what HOME opens, what is off, --fix re-applies Home
@@ -107,6 +108,28 @@ settings if it bothers you.
 
 Your dock is stored on the TV. `install.sh <IP> "pkg1,pkg2,..."` replaces it,
 `install.sh <IP> auto` clears it and lets the launcher rediscover apps.
+
+## Preview on the Mac first
+
+Changes can be checked in an Android TV emulator before anything goes to the TV.
+It runs the same APK at 1920×1080, so sizes, clipping, focus and animation look
+the same. One-time setup, about 1.2 GB from Google:
+
+```sh
+sdkmanager "emulator" "system-images;android-34;android-tv;arm64-v8a"
+sh scripts/preview.sh setup
+sh scripts/preview.sh start
+sh scripts/preview.sh dock                 # placeholder dock named like the TV's apps
+sh scripts/preview.sh photos ~/Pictures/tv # your photos, emulator only
+sh scripts/preview.sh watch                # rebuild + reload on every save
+```
+
+`key up|down|left|right|ok|longok|back|home` drives it like the remote and
+`shot <name>` saves a screenshot to `.local/preview/`. The script only ever
+talks to an emulator: with none running it refuses instead of falling through
+to a TV on the network. The emulator runs Android TV 14 and has none of your
+streaming apps, so the dock shows placeholders with each app's initial;
+real white logos only appear on the TV.
 
 ## Your photos
 

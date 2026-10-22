@@ -98,8 +98,11 @@ public class MainActivity extends Activity {
     // Design metrics at 1920x1080.
     static final int CLOCK_LEFT = 144, CLOCK_TOP = 62, CLOCK_SIZE = 50;
     static final int TOP_RIGHT = 128, TOP_TOP = 66, TOP_BTN = 76, TOP_GAP = 4, TOP_GLYPH = 34;
-    static final int DOCK_SIDE = 112, DOCK_BOTTOM = 176, DOCK_H = 216, DOCK_RADIUS = 30;
-    static final int ITEM_W = 286, ITEM_H = 200, ITEM_RADIUS = 24, ITEM_GAP = 5, ITEM_ICON = 60;
+    static final int DOCK_SIDE = 100, DOCK_BOTTOM = 172, DOCK_H = 232, DOCK_RADIUS = 32, DOCK_PAD_X = 8, DOCK_FADE = 170;
+    static final int ITEM_W = 287, ITEM_H = 200, ITEM_RADIUS = 24, ITEM_GAP = 5, ITEM_ICON = 60;
+    /** Focus growth. Every container leaves at least this much room around a focused item. */
+    static final float GROW_DOCK = 1.03f, GROW_GLYPH = 1.12f, GROW_GRID = 1.08f, GROW_CHIP = 1.06f, GROW_PHOTO = 1.06f;
+    static final int TOP_PAD = 8, GRID_PAD = 14, ROW_PAD = 8, STRIP_PAD = 16, BODY_PAD = 16, CHIP_PAD = 10;
     static final int LABEL_SIZE = 34;
     static final int SHEET_LEFT = 160, SHEET_TOP = 100, SHEET_W = 1600, SHEET_H = 880, SHEET_RADIUS = 40;
     static final int GRID_COLS = 7, GRID_W = 206, GRID_H = 196, GRID_ICON = 72;
@@ -269,11 +272,16 @@ public class MainActivity extends Activity {
         topBar.addView(glyphButton(idGearBtn, Glyph.GEAR, new Runnable() {
             @Override public void run() { showOverlay(settingsPanel()); }
         }, null));
+        // The row is padded by TOP_PAD and shifted out by the same amount, so the glyphs sit
+        // where they did but a focused circle has room to grow without being sliced.
+        topBar.setPadding(px(TOP_PAD), px(TOP_PAD), px(TOP_PAD), px(TOP_PAD));
+        topBar.setClipChildren(false);
+        topBar.setClipToPadding(false);
         FrameLayout.LayoutParams tp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         tp.gravity = Gravity.TOP | Gravity.END;
-        tp.rightMargin = px(TOP_RIGHT);
-        tp.topMargin = px(TOP_TOP);
+        tp.rightMargin = px(TOP_RIGHT - TOP_PAD);
+        tp.topMargin = px(TOP_TOP - TOP_PAD);
         root.addView(topBar, tp);
 
         dockBox = new FrameLayout(this);
@@ -288,7 +296,10 @@ public class MainActivity extends Activity {
         dock = new LinearLayout(this);
         dock.setOrientation(LinearLayout.HORIZONTAL);
         int pad = (DOCK_H - ITEM_H) / 2;
-        dock.setPadding(px(pad), px(pad), px(pad), px(pad));
+        dock.setPadding(px(DOCK_PAD_X), px(pad), px(DOCK_PAD_X), px(pad));
+        // Items that run past either end fade into the glass instead of being cut off.
+        dockScroll.setHorizontalFadingEdgeEnabled(true);
+        dockScroll.setFadingEdgeLength(px(DOCK_FADE));
         dock.setClipChildren(false);
         dock.setClipToPadding(false);
         dockScroll.addView(dock, new ViewGroup.LayoutParams(
@@ -330,7 +341,7 @@ public class MainActivity extends Activity {
             @Override public void onFocusChange(View v, boolean f) {
                 if (f) focusedKey = "top:" + v.getId();
                 animateColor(bg, f ? FOCUS_BG : 0x00FFFFFF);
-                scaleTo(v, f ? 1.12f : 1f, 0);
+                scaleTo(v, f ? GROW_GLYPH : 1f, 0);
             }
         });
         b.setOnClickListener(new View.OnClickListener() {
@@ -362,8 +373,33 @@ public class MainActivity extends Activity {
 
     private boolean mono() { return prefs.getBoolean(KEY_MONO, true); }
 
+    /**
+     * Preview only: the emulator has none of the TV's apps, so scripts/preview.sh can push a
+     * list of labels to files/preview-dock.txt. Each becomes a placeholder dock item with
+     * its initial as the logo. On the TV the file never exists and this does nothing.
+     */
+    private List<String> previewLabels() {
+        List<String> out = new ArrayList<>();
+        try {
+            java.io.File f = new java.io.File(getExternalFilesDir(null), "preview-dock.txt");
+            if (!f.exists()) return out;
+            java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(f));
+            try {
+                String line;
+                while ((line = r.readLine()) != null) { line = line.trim(); if (!line.isEmpty()) out.add(line); }
+            } finally { r.close(); }
+        } catch (Throwable ignored) { }
+        return out;
+    }
+
     /** Dock keys in order: package names, or livetv / store / input:<id>. */
     private List<String> dockKeys() {
+        List<String> preview = previewLabels();
+        if (!preview.isEmpty()) {
+            List<String> out = new ArrayList<>();
+            for (String l : preview) out.add("preview:" + l);
+            return out;
+        }
         String saved = prefs.getString(KEY_APPS, null);
         String[] wanted = saved != null ? saved.split("[,\\s]+") : Apps.LIST;
         List<String> out = new ArrayList<>();
@@ -424,7 +460,13 @@ public class MainActivity extends Activity {
         boolean isApp() { return !key.equals(K_LIVETV) && !key.equals(K_STORE) && !key.startsWith(K_INPUT) && !key.equals(K_TVSET); }
     }
 
-    private Entry entryFor(String key) {
+    private Entry entryFor(final String key) {
+        if (key.startsWith("preview:")) {
+            final String label = key.substring(8);
+            return new Entry(key, label, Glyph.letter(label), new Runnable() {
+                @Override public void run() { Toast.makeText(MainActivity.this, "Preview: " + label, Toast.LENGTH_SHORT).show(); }
+            });
+        }
         if (key.equals(K_LIVETV)) {
             if (launchIntent(LIVE_TV) == null) return null;
             return new Entry(key, "Live TV", new Glyph(Glyph.TV), new Runnable() {
@@ -470,7 +512,7 @@ public class MainActivity extends Activity {
 
     /** The icon to show: a white logo made from the app icon, or the colour icon. */
     private Drawable iconFor(Entry e, int sizeAt1080) {
-        if (e.colour instanceof Glyph) return new Glyph(((Glyph) e.colour).kind);
+        if (e.colour instanceof Glyph) return ((Glyph) e.colour).copy();
         if (!mono()) return e.colour;
         Bitmap m = monoCache.get(e.key);
         if (m == null && !monoCache.containsKey(e.key)) {
@@ -499,7 +541,7 @@ public class MainActivity extends Activity {
             dock.addView(v);
             if (firstBuild) {
                 v.setAlpha(0f);
-                v.setTranslationY(px(24));
+                v.setTranslationY(px(12));
                 v.animate().alpha(1f).translationY(0).setStartDelay(60 + i * 35L).setDuration(320)
                         .setInterpolator(new DecelerateInterpolator()).start();
             }
@@ -510,7 +552,7 @@ public class MainActivity extends Activity {
             TextView hint = text("Nothing in the dock yet. Press up, the gear, then \"Add or remove apps\".", 30, WHITE_DIM);
             hint.setGravity(Gravity.CENTER);
             dock.addView(hint, new LinearLayout.LayoutParams(
-                    screenW - px(DOCK_SIDE) * 2 - px(DOCK_H - ITEM_H), px(ITEM_H)));
+                    screenW - px(DOCK_SIDE) * 2 - px(DOCK_PAD_X) * 2, px(ITEM_H)));
         }
         int downTo = firstId != View.NO_ID ? firstId : idGearBtn;
         for (int j = 0; j < topBar.getChildCount(); j++) topBar.getChildAt(j).setNextFocusDownId(downTo);
@@ -565,7 +607,7 @@ public class MainActivity extends Activity {
                 if (f) focusedKey = (String) v.getTag();
                 animateColor(bg, f ? FOCUS_BG : 0x00FFFFFF);
                 label.setTextColor(f ? WHITE : WHITE_DIM);
-                scaleTo(v, f ? 1.07f : 1f, f ? -px(6) : 0);
+                scaleTo(v, f ? GROW_DOCK : 1f, 0);
             }
         });
         t.setOnClickListener(new View.OnClickListener() {
@@ -672,7 +714,7 @@ public class MainActivity extends Activity {
         c.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override public void onFocusChange(View v, boolean f) {
                 animateColor(bg, selected ? 0xFFFFFFFF : (f ? CHIP_FOCUS : CHIP_BG));
-                scaleTo(v, f ? 1.06f : 1f, 0);
+                scaleTo(v, f ? GROW_CHIP : 1f, 0);
             }
         });
         c.setOnClickListener(new View.OnClickListener() {
@@ -695,6 +737,7 @@ public class MainActivity extends Activity {
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
         col.setPadding(px(48), px(40), px(48), px(32));
+        col.setClipChildren(false);
         TextView title = text(e.label, 38, WHITE);
         title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         title.setPadding(0, 0, 0, px(22));
@@ -723,6 +766,12 @@ public class MainActivity extends Activity {
     private View row(View chip, boolean first) {
         LinearLayout r = new LinearLayout(this);
         r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setClipToPadding(false);
+        r.setPadding(px(CHIP_PAD), 0, px(CHIP_PAD), 0);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(-px(CHIP_PAD), 0, -px(CHIP_PAD), 0);
+        r.setLayoutParams(lp);
         r.addView(chip);
         if (first) chip.setTag("first");
         return r;
@@ -742,14 +791,22 @@ public class MainActivity extends Activity {
         hint.setPadding(0, px(6), 0, px(22));
         col.addView(hint);
 
+        // The grid scrolls, so it must clip; it gets GRID_PAD of room on every side for the
+        // focus grow, and the scroll view reaches into the sheet's padding by the same amount
+        // so the icons stay lined up with the title.
+        col.setClipToPadding(false);
         ScrollView sv = new ScrollView(this);
         sv.setVerticalScrollBarEnabled(false);
-        sv.setClipChildren(false);
+        sv.setClipToPadding(false);
         LinearLayout grid = new LinearLayout(this);
         grid.setOrientation(LinearLayout.VERTICAL);
         grid.setClipChildren(false);
+        grid.setClipToPadding(false);
+        grid.setPadding(0, px(GRID_PAD - ROW_PAD), 0, px(GRID_PAD - ROW_PAD));
         sv.addView(grid);
-        col.addView(sv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        LinearLayout.LayoutParams svp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+        svp.setMargins(-px(GRID_PAD), -px(GRID_PAD), -px(GRID_PAD), 0);
+        col.addView(sv, svp);
 
         final List<String> inDock = dockKeys();
         List<Entry> all = allEntries();
@@ -758,8 +815,11 @@ public class MainActivity extends Activity {
             if (i % GRID_COLS == 0) {
                 rowV = new LinearLayout(this);
                 rowV.setOrientation(LinearLayout.HORIZONTAL);
+                // Drawing into a row's own padding is reliable; drawing past a row's edge
+                // is not, so every row carries the room its focused item grows into.
                 rowV.setClipChildren(false);
-                rowV.setPadding(0, px(4), 0, px(4));
+                rowV.setClipToPadding(false);
+                rowV.setPadding(px(GRID_PAD), px(ROW_PAD), px(GRID_PAD), px(ROW_PAD));
                 grid.addView(rowV);
             }
             View item = gridItem(all.get(i), addMode, inDock);
@@ -831,7 +891,7 @@ public class MainActivity extends Activity {
             @Override public void onFocusChange(View v, boolean f) {
                 animateColor(bg, f ? FOCUS_BG : 0x00FFFFFF);
                 label.setTextColor(f ? WHITE : WHITE_DIM);
-                scaleTo(v, f ? 1.08f : 1f, 0);
+                scaleTo(v, f ? GROW_GRID : 1f, 0);
             }
         });
         t.setOnClickListener(new View.OnClickListener() {
@@ -858,29 +918,44 @@ public class MainActivity extends Activity {
         title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         col.addView(title);
 
+        // Same idea as the drawer: the scrolling body reaches BODY_PAD into the sheet padding
+        // and pads itself back, so headings stay aligned and focused items have room.
+        col.setClipToPadding(false);
         ScrollView sv = new ScrollView(this);
         sv.setVerticalScrollBarEnabled(false);
-        sv.setClipChildren(false);
+        sv.setClipToPadding(false);
         final LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
         body.setClipChildren(false);
+        body.setClipToPadding(false);
+        body.setPadding(px(BODY_PAD), 0, px(BODY_PAD), px(BODY_PAD));
         sv.addView(body);
-        col.addView(sv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        LinearLayout.LayoutParams svp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+        svp.setMargins(-px(BODY_PAD), 0, -px(BODY_PAD), 0);
+        col.addView(sv, svp);
 
         // Wallpaper
         body.addView(heading("Photo"));
         final List<String> refs = wallpapers.refs();
         final String current = prefs.getString(KEY_WALL, SHUFFLE);
+        // The photo strip scrolls sideways, so it clips at its own edges. It reaches STRIP_PAD
+        // past the body padding on both sides and pads itself back: the first tile lines up
+        // with the heading, and a focused tile has room to grow and keep its border.
         HorizontalScrollView hs = new HorizontalScrollView(this);
         hs.setHorizontalScrollBarEnabled(false);
-        hs.setClipChildren(false);
         hs.setClipToPadding(false);
+        hs.setHorizontalFadingEdgeEnabled(true);
+        hs.setFadingEdgeLength(px(80));
         final LinearLayout strip = new LinearLayout(this);
         strip.setOrientation(LinearLayout.HORIZONTAL);
         strip.setClipChildren(false);
-        strip.setPadding(px(6), px(8), px(6), px(8));
+        strip.setClipToPadding(false);       // the padding IS the room to grow into
+        strip.setPadding(px(STRIP_PAD), px(12), px(STRIP_PAD), px(12));
         hs.addView(strip);
-        body.addView(hs);
+        LinearLayout.LayoutParams hsp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hsp.setMargins(-px(STRIP_PAD), 0, -px(STRIP_PAD), 0);
+        body.addView(hs, hsp);
         View shuffleTile = photoTile(null, SHUFFLE.equals(current), new Runnable() {
             @Override public void run() { prefs.edit().putString(KEY_WALL, SHUFFLE).apply(); loadWallpaper(true); showOverlay(settingsPanel()); }
         });
@@ -962,7 +1037,12 @@ public class MainActivity extends Activity {
         LinearLayout r = new LinearLayout(this);
         r.setOrientation(LinearLayout.HORIZONTAL);
         r.setClipChildren(false);
-        r.setPadding(px(6), px(6), 0, 0);
+        r.setClipToPadding(false);
+        r.setPadding(px(CHIP_PAD), px(6), px(CHIP_PAD), px(4));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(-px(CHIP_PAD), 0, -px(CHIP_PAD), 0);
+        r.setLayoutParams(lp);
         return r;
     }
 
@@ -1013,7 +1093,7 @@ public class MainActivity extends Activity {
         t.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override public void onFocusChange(View v, boolean f) {
                 frame.setStroke(px(3), f ? 0xFFFFFFFF : (sel ? 0xB3FFFFFF : 0x00FFFFFF));
-                scaleTo(v, f ? 1.06f : 1f, 0);
+                scaleTo(v, f ? GROW_PHOTO : 1f, 0);
             }
         });
         t.setOnClickListener(new View.OnClickListener() {
@@ -1219,8 +1299,9 @@ public class MainActivity extends Activity {
 
     /** A quick press-down bounce before an action runs. */
     private void press(final View v) {
-        v.animate().scaleX(0.96f).scaleY(0.96f).setDuration(70).withEndAction(new Runnable() {
-            @Override public void run() { v.animate().scaleX(1.07f).scaleY(1.07f).setDuration(120).start(); }
+        final float back = v.getScaleX();
+        v.animate().scaleX(back * 0.96f).scaleY(back * 0.96f).setDuration(70).withEndAction(new Runnable() {
+            @Override public void run() { v.animate().scaleX(back).scaleY(back).setDuration(120).start(); }
         }).start();
     }
 

@@ -180,6 +180,39 @@ Verification throughout was by screenshots pulled from the TV, checking the
 resumed activity with `dumpsys activity`, and reading `logcat` for crashes.
 There were none.
 
+## A preview loop, and the clipping bugs it found
+
+After the first TV builds, the owner saw borders cut off and focus circles
+flattened. Rather than iterate on the TV, the project gained an exact preview:
+the Android emulator with the Android TV 14 image at 1920×1080, driven by
+`scripts/preview.sh` (boot, install, set Home, push photos, simulate remote
+keys, screenshot, and a watch mode that rebuilds and reloads on every save).
+Two setup surprises: the emulator refuses an SDK folder without a
+`platform-tools` subfolder (Homebrew keeps adb elsewhere, so the script links
+it), and Android TV 14 keeps sending HOME to its own launcher even when another
+app holds the Home role, so the stock launcher is switched off on the emulator
+only. A placeholder mode fills the dock with the TV's app names, since the
+emulator has none of those apps.
+
+Every clipping bug had one cause: an item grows on focus, but its container
+gave it no room. The fixes, each verified with before and after screenshots:
+
+- The dock now insets its items 16 px top and bottom like the reference, the
+  focused card grows 3% instead of 7% plus a lift, and both ends fade into the
+  glass instead of cutting an item in half.
+- The top-right circles sit in a row padded by 8 px and shifted out by the
+  same amount, so a focused circle stays round.
+- The settings photo strip, the app-drawer rows and the chip rows each carry
+  their own padding to grow into, reaching into the panel padding by the same
+  amount so alignment is unchanged.
+- The glass panels now report a rounded outline, so content clips to the
+  rounded corners rather than a rectangle.
+
+One finding worth keeping: on this Android build, letting a view draw past its
+own edges (`clipChildren=false`) did not reliably work for nested rows, while
+letting it draw into its own padding (`clipToPadding=false`) always did. Every
+fix uses the second.
+
 ## Numbers
 
 - Java: five files, about 1,300 lines, no libraries, no XML layouts.

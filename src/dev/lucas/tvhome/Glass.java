@@ -85,6 +85,11 @@ final class Glass extends Drawable {
         }
     }
 
+    /** Rounded outline, so a view with clipToOutline clips to the glass shape, corners included. */
+    @Override public void getOutline(android.graphics.Outline outline) {
+        outline.setRoundRect(getBounds(), radius);
+    }
+
     @Override public void setAlpha(int a) { fill.setAlpha(a); tint.setAlpha(a); shine.setAlpha(a); border.setAlpha(a); }
     @Override public void setColorFilter(ColorFilter f) { fill.setColorFilter(f); }
     @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }

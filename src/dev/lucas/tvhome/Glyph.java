@@ -12,9 +12,24 @@ import android.graphics.drawable.Drawable;
 /** Thin white line icons drawn in code, so the APK needs no image files. */
 final class Glyph extends Drawable {
 
-    static final int IMAGE = 0, GRID = 1, GEAR = 2, INPUT = 3, TV = 4, PLUS = 5, CHECK = 6, SHUFFLE = 7, STORE = 8;
+    static final int IMAGE = 0, GRID = 1, GEAR = 2, INPUT = 3, TV = 4, PLUS = 5, CHECK = 6, SHUFFLE = 7, STORE = 8, LETTER = 9;
 
     final int kind;
+    private String letter = "";
+
+    /** A bold white initial, used for preview placeholders. */
+    static Glyph letter(String label) {
+        Glyph g = new Glyph(LETTER);
+        g.letter = label.isEmpty() ? "?" : label.substring(0, 1).toUpperCase(java.util.Locale.ROOT);
+        return g;
+    }
+
+    /** A fresh drawable for another view; drawables can't share bounds. */
+    Glyph copy() {
+        Glyph g = new Glyph(kind);
+        g.letter = letter;
+        return g;
+    }
     private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
 
@@ -44,6 +59,14 @@ final class Glyph extends Drawable {
             case CHECK: check(c, s); break;
             case SHUFFLE: shuffle(c, s); break;
             case STORE: store(c, s); break;
+            case LETTER: {
+                fill.setTextSize(s * 0.78f);
+                fill.setTextAlign(Paint.Align.CENTER);
+                fill.setTypeface(android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD));
+                Paint.FontMetrics fm = fill.getFontMetrics();
+                c.drawText(letter, s / 2f, s / 2f - (fm.ascent + fm.descent) / 2f, fill);
+                break;
+            }
             default: tv(c, s);
         }
         c.restore();
