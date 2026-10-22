@@ -213,9 +213,51 @@ own edges (`clipChildren=false`) did not reliably work for nested rows, while
 letting it draw into its own padding (`clipToPadding=false`) always did. Every
 fix uses the second.
 
+## Version 0.4: "as if Apple made it, but not Apple TV"
+
+The owner sent a picture of an iPad-style dock and asked for that feel: date,
+time and weather top left, Wi-Fi and the app drawer top right, and a dock of
+large colour icons with no text. Everything was built and checked in the
+emulator first; the TV was not touched.
+
+- **Colour icons in Apple's shape.** `AppIcon.java` redraws each app's own icon
+  as a superellipse ("squircle") rather than shipping any artwork. Android TV
+  icons come in every shape, so each is sorted: adaptive icons use their
+  background and foreground layers; full-bleed squares are cropped; rounded
+  squares are zoomed slightly so their own corners fall outside the new shape,
+  with the gap filled in their edge colour; round badges sit on a plate of
+  their own outer colour so the circle merges into a square; bare logos sit on
+  white or near-black depending on how light they are. A faint top sheen and a
+  hairline rim finish them.
+- **The dock** floats centred above the bottom edge, sized to its contents. Icon
+  size is solved so all apps fit (128 px down to 96 px, then it scrolls). The
+  glass is only the lower part of the dock's box; the space above it is where a
+  focused icon rises into, growing 18% from its base with an overshoot and a
+  deepening shadow. That keeps the earlier lesson: grow into your own padding,
+  never past an edge.
+- **Header**: weekday and date with a multicolour weather symbol and the
+  temperature, above a large time. **Status capsule**: a small glass pill with a
+  live Wi-Fi indicator (signal bars, Ethernet symbol, or crossed out offline)
+  and the app-drawer button; a focused button turns into a white disc with a
+  dark glyph.
+- **Weather** is the launcher's first network use. Open-Meteo, no key, location
+  rounded to about a kilometre; location from ipapi.co (geojs.io as fallback)
+  or a typed city; cached, refreshed at most every 30 minutes, and switchable
+  off. Fahrenheit only where the TV's region uses it.
+- **A settings choice between Colour and Glass icons**, at the owner's request:
+  Glass shows the white logos from `Mono.java` on frosted tiles. Glass icons
+  lift without a shadow, because a shadow shows through a see-through tile as a
+  dark square.
+
+Bugs the preview caught before they reached the TV: the header sized itself to
+the time (a `TextClock` sets its text only once attached), which cut the date
+off and squeezed the weather to zero width; and closing a panel let Android
+hand focus to the first free button, which then overwrote the record of where
+focus should return to.
+
 ## Numbers
 
-- Java: five files, about 1,300 lines, no libraries, no XML layouts.
+- Java: eight files, about 2,900 lines, no libraries, no XML layouts.
 - Shell: seven scripts.
 - Default dock: the streaming apps actually installed on the TV, in a chosen
   order, editable on the TV.

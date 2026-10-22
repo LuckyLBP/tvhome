@@ -25,7 +25,7 @@ final class Glass extends Drawable {
     private final Paint border = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF rect = new RectF();
     private final Matrix matrix = new Matrix();
-    private final float radius;
+    private float radius;
     private final float borderWidth;
     private int factor = 1;
     private int screenLeft, screenTop;
@@ -52,6 +52,10 @@ final class Glass extends Drawable {
         apply();
         invalidateSelf();
     }
+
+    void setBorderColor(int c) { border.setColor(c); invalidateSelf(); }
+
+    void setRadius(float r) { radius = r; invalidateSelf(); }
 
     void setScreenPosition(int left, int top) {
         screenLeft = left;

@@ -11,11 +11,13 @@ You can't remove Android from this TV. The bootloader is locked, the firmware is
 signed, and the tuner, HDMI switching, Ambilight, remote and audio all live inside
 Philips' Android build. What you *can* do, without root and fully reversibly:
 
-1. **Replace the home screen.** `out/tvhome.apk` is a small Java launcher in
-   the spirit of CleanFrame: one of your own photos fills the screen, the time
-   sits top left, three glyphs top right (wallpaper, all apps, settings), and a
-   frosted dock along the bottom holds the apps you chose. No ads, no rows, no
-   "recommendations", no network access at all.
+1. **Replace the home screen.** `out/tvhome.apk` is a small Java launcher that
+   looks like Apple might have made it, without being Apple TV: one of your own
+   photos fills the screen, the date, weather and a large time sit top left, a
+   small glass capsule top right holds Wi-Fi and the app drawer, and a floating
+   iPad-style dock along the bottom holds your apps as large colour icons, no
+   labels. No ads, no rows, no "recommendations". The only network use is the
+   weather, and that can be switched off.
 2. **Turn off the ad and telemetry packages.** Google's recommendation rows,
    Philips' Top Picks, the usage logger, the analytics uploaders, the ACR client
    that fingerprints what's on screen, the Smart TV Collection store and its
@@ -30,9 +32,10 @@ written for this specific Philips platform.
 
 ```
 AndroidManifest.xml              HOME + LEANBACK_LAUNCHER activity, minSdk 26
-src/dev/lucas/tvhome/            MainActivity.java (the launcher), Mono.java (white logos
-                                 from app icons), Glass.java (blur + border + highlight),
-                                 Wallpapers.java (photos, thumbnails), Glyph.java (line icons)
+src/dev/lucas/tvhome/            MainActivity.java (the launcher), AppIcon.java (rounded-
+                                 square colour icons), Mono.java (white logos), Glass.java
+                                 (blur + border + highlight), Weather.java (Open-Meteo),
+                                 Wallpapers.java (photos), Glyph.java (status, weather icons)
 res/                             app name and a banner for the stock launcher
 apps.txt                         default dock, one package per line
 wallpapers/                      your photos; packed into the APK by build.sh
@@ -86,25 +89,40 @@ See [docs/setup.md](docs/setup.md) for the long version and
 
 | Remote        | Action                                                  |
 |---------------|---------------------------------------------------------|
-| left / right  | move along the dock (it scrolls if you add many apps)   |
-| up            | the three glyphs top right                              |
+| left / right  | move along the dock                                     |
+| up            | the Wi-Fi and app-drawer buttons top right              |
 | OK            | open                                                    |
 | long OK, MENU | edit a dock item: move left / right, remove, app info   |
-| BACK          | nothing, this is the home screen                        |
+| long OK on the drawer button | settings                                 |
+| BACK          | close a panel; on the home screen itself, nothing       |
 | HOME          | back here, first dock item                              |
 
-Top right: the **picture** glyph opens the photo picker (long press: next photo
-now), the **grid** glyph opens the app drawer, a grid of everything on the TV
-(apps, HDMI inputs, Live TV, Play Store, TV settings) where OK opens and a long
-press adds to the dock, and the **gear** glyph opens settings: photos with
-thumbnails and shuffle, how often the photo changes, white or colour logos, dock
-editing, TV settings. BACK closes any panel.
+**The dock** sizes its icons so every app fits, from 128 px down to 96 px; past
+that it scrolls with soft edges. A focused icon grows from its base, rises out
+of the dock and casts a shadow. Icons are the apps' own, redrawn in Apple's
+rounded-square shape: adaptive icons use their layers, square icons are cropped,
+round badges are set on a plate of their own outer colour, bare logos on white
+or near-black. Nothing is shipped; everything is made on the TV.
 
-**White logos** are made on the TV from each app's own icon: the icon's
-background is found and removed and what's left becomes white, with enclosed
-details such as a play arrow cut out. No logo artwork is shipped. Apps whose
-icons are full-bleed artwork come out as blobs; switch those TVs to "Colour" in
-settings if it bothers you.
+**Top right**, the Wi-Fi symbol shows signal strength (or the network symbol on
+Ethernet, crossed out when offline) and opens network settings. The grid opens
+the app drawer: everything on the TV (apps, HDMI inputs, Live TV, Play Store, TV
+settings) as a Launchpad-style grid. OK opens, long press adds to the dock, and
+the Settings button in its header opens the launcher's settings.
+
+**Settings**: photos with thumbnails and shuffle, how often the photo changes,
+**Icons** (Colour, or Glass: the app's logo in white on frosted glass),
+**Weather** (automatic location, a city you type, or off), dock editing, TV
+settings.
+
+**Weather** uses [Open-Meteo](https://open-meteo.com), with no key and the
+location rounded to about a kilometre. "Automatic location" asks ipapi.co
+(falling back to geojs.io) for an approximate location from the TV's internet
+connection, once a week. A typed city is looked up once with Open-Meteo's
+geocoding. Weather refreshes at most every 30 minutes. Off means the launcher
+makes no network requests at all. From the Mac:
+`adb shell am start -n dev.lucas.tvhome/.MainActivity --es city Uppsala`
+(or `auto`, or `off`).
 
 Your dock is stored on the TV. `install.sh <IP> "pkg1,pkg2,..."` replaces it,
 `install.sh <IP> auto` clears it and lets the launcher rediscover apps.

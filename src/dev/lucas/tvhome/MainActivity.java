@@ -11,6 +11,8 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
+import android.graphics.Outline;
+import android.graphics.PorterDuff;
 import android.graphics.Typeface;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
@@ -18,9 +20,16 @@ import android.graphics.drawable.GradientDrawable;
 import android.media.tv.TvContract;
 import android.media.tv.TvInputInfo;
 import android.media.tv.TvInputManager;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.Uri;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.inputmethod.EditorInfo;
 import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.TypedValue;
@@ -28,6 +37,8 @@ import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewOutlineProvider;
+import android.widget.EditText;
 import android.view.animation.DecelerateInterpolator;
 import android.view.animation.OvershootInterpolator;
 import android.widget.FrameLayout;
@@ -96,16 +107,19 @@ public class MainActivity extends Activity {
             LIVE_TV));
 
     // Design metrics at 1920x1080.
-    static final int CLOCK_LEFT = 144, CLOCK_TOP = 62, CLOCK_SIZE = 50;
-    static final int TOP_RIGHT = 128, TOP_TOP = 66, TOP_BTN = 76, TOP_GAP = 4, TOP_GLYPH = 34;
-    static final int DOCK_SIDE = 100, DOCK_BOTTOM = 172, DOCK_H = 232, DOCK_RADIUS = 32, DOCK_PAD_X = 8, DOCK_FADE = 170;
-    static final int ITEM_W = 287, ITEM_H = 200, ITEM_RADIUS = 24, ITEM_GAP = 5, ITEM_ICON = 60;
+    // Header, top left: date and weather on one line, the time large beneath.
+    static final int HEAD_LEFT = 96, HEAD_TOP = 58, TIME_SIZE = 136, DATE_SIZE = 32, WX_ICON = 40;
+    // Status capsule, top right.
+    static final int CAP_RIGHT = 80, CAP_TOP = 66, CAP_BTN = 72, CAP_GLYPH = 32, CAP_PAD = 8;
+    // Dock: icons are sized so every app fits, between ICON_MIN and ICON_MAX; the rest of
+    // the dock is proportional to the icon size, the way an iPad dock scales.
+    static final int DOCK_BOTTOM = 56, DOCK_MAX_W = 1760, ICON_MAX = 128, ICON_MIN = 96, DOCK_FADE = 120;
+    static final float GAP_R = 0.25f, PADX_R = 0.22f, PADV_R = 0.20f, POP_R = 0.36f, RADIUS_R = 0.36f, LIFT_R = 0.12f;
     /** Focus growth. Every container leaves at least this much room around a focused item. */
-    static final float GROW_DOCK = 1.03f, GROW_GLYPH = 1.12f, GROW_GRID = 1.08f, GROW_CHIP = 1.06f, GROW_PHOTO = 1.06f;
-    static final int TOP_PAD = 8, GRID_PAD = 14, ROW_PAD = 8, STRIP_PAD = 16, BODY_PAD = 16, CHIP_PAD = 10;
-    static final int LABEL_SIZE = 34;
+    static final float GROW_DOCK = 1.18f, GROW_GLYPH = 1.08f, GROW_GRID = 1.08f, GROW_CHIP = 1.06f, GROW_PHOTO = 1.06f;
+    static final int GRID_PAD = 14, ROW_PAD = 8, STRIP_PAD = 16, BODY_PAD = 16, CHIP_PAD = 10;
     static final int SHEET_LEFT = 160, SHEET_TOP = 100, SHEET_W = 1600, SHEET_H = 880, SHEET_RADIUS = 40;
-    static final int GRID_COLS = 7, GRID_W = 206, GRID_H = 196, GRID_ICON = 72;
+    static final int GRID_COLS = 7, GRID_W = 206, GRID_H = 196, GRID_ICON = 104;
     static final int BLUR = 8;
 
     static final int WHITE = 0xFFFFFFFF;
@@ -114,7 +128,7 @@ public class MainActivity extends Activity {
     static final int FOCUS_BG = 0x52FFFFFF;
     static final int CHIP_BG = 0x24FFFFFF;
     static final int CHIP_FOCUS = 0x5CFFFFFF;
-    static final int GLASS_TINT = 0x5C0B1018;
+    static final int GLASS_LIGHT = 0x38FFFFFF;      // dock and capsule: light frosted glass
     static final int SHEET_TINT = 0x8C0B1018;
 
     private SharedPreferences prefs;
@@ -128,7 +142,16 @@ public class MainActivity extends Activity {
     private boolean frontIsA = true;
     private Bitmap bitmapA, bitmapB, blurSmall;
     private TextClock clock;
-    private LinearLayout topBar;
+    private ImageView wxIcon, wifiIcon;
+    private TextView wxText;
+    private LinearLayout statusBar;
+    private Glass statusGlass;
+    private Weather weather;
+    private final Handler ticker = new Handler(Looper.getMainLooper());
+    private ConnectivityManager.NetworkCallback netCallback;
+    private View dockGlassView;
+    private int iconPx;
+    private final Map<String, Bitmap> iconCache = new HashMap<>();
     private FrameLayout dockBox;
     private HorizontalScrollView dockScroll;
     private LinearLayout dock;
@@ -141,11 +164,12 @@ public class MainActivity extends Activity {
     private String focusedKey;
     private boolean dirty, firstBuild = true;
     private final Random rnd = new Random();
-    private int idWallBtn, idGridBtn, idGearBtn;
+    private int idWifiBtn, idGridBtn;
 
     private final BroadcastReceiver packageWatcher = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
             monoCache.clear();
+            iconCache.clear();
             dirty = true;
             if (hasWindowFocus()) rebuildDock();
         }
@@ -161,6 +185,7 @@ public class MainActivity extends Activity {
         screenH = getResources().getDisplayMetrics().heightPixels;
         scale = screenW / 1920f;
         wallpapers = new Wallpapers(this, screenW, screenH);
+        weather = new Weather(prefs);
         applyExtras(getIntent());
 
         buildChrome();
@@ -184,13 +209,25 @@ public class MainActivity extends Activity {
 
         loadWallpaper(false);
         rebuildDock();
+        showWeather(weather.cached());
+        watchNetwork();
+        ticker.post(tick);
     }
+
+    /** Every 30 s: Wi-Fi level. Weather refreshes itself at most every 30 minutes. */
+    private final Runnable tick = new Runnable() {
+        @Override public void run() {
+            updateNetwork();
+            refreshWeather(false);
+            ticker.postDelayed(this, 30_000L);
+        }
+    };
 
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
         if (overlay.getVisibility() == View.VISIBLE) hideOverlay(false);
-        if (applyExtras(intent) || dirty) rebuildDock();
+        if (applyExtras(intent) || dirty) { rebuildDock(); refreshWeather(true); }
         if (SHUFFLE.equals(prefs.getString(KEY_WALL, SHUFFLE)) && shuffleDue()) loadWallpaper(true);
         dockScroll.smoothScrollTo(0, 0);
         if (dock.getChildCount() > 0) dock.getChildAt(0).requestFocus();
@@ -211,6 +248,8 @@ public class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        ticker.removeCallbacksAndMessages(null);
+        try { getSystemService(ConnectivityManager.class).unregisterNetworkCallback(netCallback); } catch (Throwable ignored) { }
         unregisterReceiver(packageWatcher);
         super.onDestroy();
     }
@@ -234,81 +273,121 @@ public class MainActivity extends Activity {
         }
         wallB.setAlpha(0f);
 
+        // Gentle darkening at the top and bottom, so white text and the dock read on any photo.
         View top = new View(this);
         top.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[] { 0x66000000, 0x00000000 }));
-        root.addView(top, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(280)));
+                new int[] { 0x73000000, 0x00000000 }));
+        root.addView(top, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(380)));
         View bottom = new View(this);
         bottom.setBackground(new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP,
-                new int[] { 0x8C000000, 0x00000000 }));
-        FrameLayout.LayoutParams bp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(540));
+                new int[] { 0x59000000, 0x00000000 }));
+        FrameLayout.LayoutParams bp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(420));
         bp.gravity = Gravity.BOTTOM;
         root.addView(bottom, bp);
+
+        // Header: "torsdag 22 oktober  [cloud] 12°" above a large time, like a lock screen.
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout line = new LinearLayout(this);
+        line.setOrientation(LinearLayout.HORIZONTAL);
+        line.setGravity(Gravity.CENTER_VERTICAL);
+        TextClock date = new TextClock(this);
+        date.setFormat24Hour("EEEE d MMMM");
+        date.setFormat12Hour("EEEE, MMMM d");
+        style(date, DATE_SIZE, 0xEBFFFFFF);
+        date.setSingleLine(true);
+        date.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        line.addView(date);
+        wxIcon = new ImageView(this);
+        LinearLayout.LayoutParams wip = new LinearLayout.LayoutParams(px(WX_ICON), px(WX_ICON));
+        wip.leftMargin = px(26);
+        line.addView(wxIcon, wip);
+        wxText = text("", DATE_SIZE, 0xEBFFFFFF);
+        wxText.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        wxText.setPadding(px(10), 0, 0, 0);
+        line.addView(wxText);
+        wxIcon.setVisibility(View.GONE);
+        wxText.setVisibility(View.GONE);
+        // The clocks set their text only once attached, so a wrap-content header would size
+        // itself to the time and squeeze the date and weather; give the line its own width.
+        head.addView(line, new LinearLayout.LayoutParams(px(1100), ViewGroup.LayoutParams.WRAP_CONTENT));
 
         clock = new TextClock(this);
         clock.setFormat24Hour("HH:mm");
         clock.setFormat12Hour("h:mm");
-        style(clock, CLOCK_SIZE, WHITE);
+        style(clock, TIME_SIZE, WHITE);
         clock.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        FrameLayout.LayoutParams cp = new FrameLayout.LayoutParams(
+        clock.setLetterSpacing(-0.02f);
+        clock.setIncludeFontPadding(false);
+        clock.setShadowLayer(px(18), 0, px(2), 0x40000000);
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        cp.leftMargin = px(CLOCK_LEFT);
-        cp.topMargin = px(CLOCK_TOP);
-        root.addView(clock, cp);
+        clp.topMargin = px(2);
+        clp.leftMargin = -px(6);         // optical alignment: big digits carry side bearing
+        head.addView(clock, clp);
+        FrameLayout.LayoutParams hp = new FrameLayout.LayoutParams(px(1100), ViewGroup.LayoutParams.WRAP_CONTENT);
+        hp.leftMargin = px(HEAD_LEFT);
+        hp.topMargin = px(HEAD_TOP);
+        root.addView(head, hp);
 
-        topBar = new LinearLayout(this);
-        topBar.setOrientation(LinearLayout.HORIZONTAL);
-        idWallBtn = View.generateViewId();
+        // Status capsule: Wi-Fi and the app drawer on a small piece of glass.
+        statusBar = new LinearLayout(this);
+        statusBar.setOrientation(LinearLayout.HORIZONTAL);
+        statusBar.setPadding(px(CAP_PAD), px(CAP_PAD), px(CAP_PAD), px(CAP_PAD));
+        statusBar.setClipChildren(false);
+        statusBar.setClipToPadding(false);
+        statusGlass = new Glass(null, BLUR, 0, 0, px(CAP_BTN / 2f + CAP_PAD), GLASS_LIGHT, px(1.5f));
+        statusGlass.setBorderColor(0x66FFFFFF);
+        glasses.add(statusGlass);
+        statusBar.setBackground(statusGlass);
+        idWifiBtn = View.generateViewId();
         idGridBtn = View.generateViewId();
-        idGearBtn = View.generateViewId();
-        topBar.addView(glyphButton(idWallBtn, Glyph.IMAGE, new Runnable() {
-            @Override public void run() { showOverlay(settingsPanel()); }
-        }, new Runnable() {
-            @Override public void run() { nextPhoto(); }
-        }));
-        topBar.addView(glyphButton(idGridBtn, Glyph.GRID, new Runnable() {
+        FrameLayout wifiBtn = glyphButton(idWifiBtn, Glyph.wifi(3), new Runnable() {
+            @Override public void run() { openNetwork(); }
+        }, null);
+        wifiIcon = (ImageView) wifiBtn.getChildAt(0);
+        statusBar.addView(wifiBtn);
+        statusBar.addView(glyphButton(idGridBtn, new Glyph(Glyph.GRID), new Runnable() {
             @Override public void run() { showOverlay(drawer(false)); }
-        }, null));
-        topBar.addView(glyphButton(idGearBtn, Glyph.GEAR, new Runnable() {
+        }, new Runnable() {
             @Override public void run() { showOverlay(settingsPanel()); }
-        }, null));
-        // The row is padded by TOP_PAD and shifted out by the same amount, so the glyphs sit
-        // where they did but a focused circle has room to grow without being sliced.
-        topBar.setPadding(px(TOP_PAD), px(TOP_PAD), px(TOP_PAD), px(TOP_PAD));
-        topBar.setClipChildren(false);
-        topBar.setClipToPadding(false);
-        FrameLayout.LayoutParams tp = new FrameLayout.LayoutParams(
+        }));
+        FrameLayout.LayoutParams sp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        tp.gravity = Gravity.TOP | Gravity.END;
-        tp.rightMargin = px(TOP_RIGHT - TOP_PAD);
-        tp.topMargin = px(TOP_TOP - TOP_PAD);
-        root.addView(topBar, tp);
+        sp.gravity = Gravity.TOP | Gravity.END;
+        sp.rightMargin = px(CAP_RIGHT);
+        sp.topMargin = px(CAP_TOP);
+        root.addView(statusBar, sp);
+        trackGlass(statusBar, statusGlass);
 
+        // Dock: floating and centred, sized to its icons. The glass is only the lower part
+        // of the dock's box; the space above it is room for a focused icon to rise into.
         dockBox = new FrameLayout(this);
-        int dockTop = screenH - px(DOCK_BOTTOM) - px(DOCK_H);
-        dockGlass = new Glass(null, BLUR, px(DOCK_SIDE), dockTop, px(DOCK_RADIUS), GLASS_TINT, px(1.5f));
+        dockBox.setClipChildren(false);
+        dockGlassView = new View(this);
+        dockGlass = new Glass(null, BLUR, 0, 0, px(40), GLASS_LIGHT, px(2f));
+        dockGlass.setBorderColor(0x8CFFFFFF);
         glasses.add(dockGlass);
-        dockBox.setBackground(dockGlass);
+        dockGlassView.setBackground(dockGlass);
+        FrameLayout.LayoutParams gp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(170));
+        gp.gravity = Gravity.BOTTOM;
+        dockBox.addView(dockGlassView, gp);
+        trackGlass(dockGlassView, dockGlass);
         dockScroll = new HorizontalScrollView(this);
         dockScroll.setHorizontalScrollBarEnabled(false);
-        dockScroll.setClipChildren(false);
         dockScroll.setClipToPadding(false);
-        dock = new LinearLayout(this);
-        dock.setOrientation(LinearLayout.HORIZONTAL);
-        int pad = (DOCK_H - ITEM_H) / 2;
-        dock.setPadding(px(DOCK_PAD_X), px(pad), px(DOCK_PAD_X), px(pad));
-        // Items that run past either end fade into the glass instead of being cut off.
         dockScroll.setHorizontalFadingEdgeEnabled(true);
         dockScroll.setFadingEdgeLength(px(DOCK_FADE));
+        dock = new LinearLayout(this);
+        dock.setOrientation(LinearLayout.HORIZONTAL);
         dock.setClipChildren(false);
         dock.setClipToPadding(false);
         dockScroll.addView(dock, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
         dockBox.addView(dockScroll, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        FrameLayout.LayoutParams dp = new FrameLayout.LayoutParams(screenW - px(DOCK_SIDE) * 2, px(DOCK_H));
-        dp.gravity = Gravity.BOTTOM | Gravity.START;
-        dp.leftMargin = px(DOCK_SIDE);
+        FrameLayout.LayoutParams dp = new FrameLayout.LayoutParams(px(800), px(220));
+        dp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
         dp.bottomMargin = px(DOCK_BOTTOM);
         root.addView(dockBox, dp);
 
@@ -318,34 +397,45 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
     }
 
-    private View glyphButton(int id, int kind, final Runnable action, final Runnable longAction) {
+    /** Keeps a glass panel's blur lined up with the photo behind it, wherever it moves. */
+    private void trackGlass(final View v, final Glass g) {
+        v.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override public void onLayoutChange(View view, int l, int t, int r, int b, int ol, int ot, int or, int ob) {
+                int[] at = new int[2];
+                view.getLocationOnScreen(at);
+                g.setScreenPosition(at[0], at[1]);
+            }
+        });
+    }
+
+    /** A round button for the status capsule. Focused: white disc, dark glyph. */
+    private FrameLayout glyphButton(int id, Drawable glyph, final Runnable action, final Runnable longAction) {
         final FrameLayout b = new FrameLayout(this);
         b.setId(id);
         b.setFocusable(true);
         b.setFocusableInTouchMode(true);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(px(TOP_BTN), px(TOP_BTN));
-        lp.leftMargin = px(TOP_GAP);
-        b.setLayoutParams(lp);
+        b.setLayoutParams(new LinearLayout.LayoutParams(px(CAP_BTN), px(CAP_BTN)));
         final GradientDrawable bg = new GradientDrawable();
         bg.setShape(GradientDrawable.OVAL);
         bg.setColor(0x00FFFFFF);
         b.setBackground(bg);
 
-        ImageView g = new ImageView(this);
-        g.setImageDrawable(new Glyph(kind));
-        FrameLayout.LayoutParams gp = new FrameLayout.LayoutParams(px(TOP_GLYPH), px(TOP_GLYPH));
+        final ImageView g = new ImageView(this);
+        g.setImageDrawable(glyph);
+        FrameLayout.LayoutParams gp = new FrameLayout.LayoutParams(px(CAP_GLYPH), px(CAP_GLYPH));
         gp.gravity = Gravity.CENTER;
         b.addView(g, gp);
 
         b.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override public void onFocusChange(View v, boolean f) {
                 if (f) focusedKey = "top:" + v.getId();
-                animateColor(bg, f ? FOCUS_BG : 0x00FFFFFF);
+                animateColor(bg, f ? 0xF2FFFFFF : 0x00FFFFFF);
+                if (f) g.setColorFilter(0xFF1C1C1E, PorterDuff.Mode.SRC_IN); else g.clearColorFilter();
                 scaleTo(v, f ? GROW_GLYPH : 1f, 0);
             }
         });
         b.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { action.run(); }
+            @Override public void onClick(View v) { press(v); action.run(); }
         });
         if (longAction != null) {
             b.setOnLongClickListener(new View.OnLongClickListener() {
@@ -355,23 +445,114 @@ public class MainActivity extends Activity {
         return b;
     }
 
+    // ---------------------------------------------------------------- network and weather
+
+    private void watchNetwork() {
+        try {
+            netCallback = new ConnectivityManager.NetworkCallback() {
+                @Override public void onAvailable(Network n) { post(); }
+                @Override public void onLost(Network n) { post(); }
+                @Override public void onCapabilitiesChanged(Network n, NetworkCapabilities c) { post(); }
+                private void post() {
+                    runOnUiThread(new Runnable() {
+                        @Override public void run() { updateNetwork(); refreshWeather(false); }
+                    });
+                }
+            };
+            getSystemService(ConnectivityManager.class).registerDefaultNetworkCallback(netCallback);
+        } catch (Throwable ignored) { }
+        updateNetwork();
+    }
+
+    /** Wi-Fi with its signal level, the network symbol for Ethernet, or crossed out offline. */
+    private void updateNetwork() {
+        Glyph g;
+        try {
+            ConnectivityManager cm = getSystemService(ConnectivityManager.class);
+            Network n = cm.getActiveNetwork();
+            NetworkCapabilities c = n == null ? null : cm.getNetworkCapabilities(n);
+            if (c == null) {
+                g = new Glyph(Glyph.OFFLINE);
+            } else if (c.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) {
+                g = new Glyph(Glyph.ETHERNET);
+            } else {
+                int level = 3;
+                try {
+                    WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
+                    level = WifiManager.calculateSignalLevel(wm.getConnectionInfo().getRssi(), 4);
+                } catch (Throwable ignored) { }
+                g = Glyph.wifi(Math.max(1, Math.min(3, level)));
+            }
+        } catch (Throwable t) {
+            g = Glyph.wifi(3);
+        }
+        boolean focused = wifiIcon.getParent() != null && ((View) wifiIcon.getParent()).isFocused();
+        wifiIcon.setImageDrawable(g);
+        if (focused) wifiIcon.setColorFilter(0xFF1C1C1E, PorterDuff.Mode.SRC_IN);
+    }
+
+    private void openNetwork() {
+        Intent i = new Intent(Settings.ACTION_WIFI_SETTINGS);
+        if (pm.resolveActivity(i, 0) == null) i = new Intent(Settings.ACTION_WIRELESS_SETTINGS);
+        if (pm.resolveActivity(i, 0) == null) { openSettings(); return; }
+        start(i);
+    }
+
+    private void refreshWeather(boolean force) {
+        weather.refresh(force, new Weather.Listener() {
+            @Override public void onWeather(Weather.Reading r) { showWeather(r); }
+        });
+    }
+
+    private void showWeather(Weather.Reading r) {
+        if (r == null || weather.mode().equals("off")) {
+            wxIcon.setVisibility(View.GONE);
+            wxText.setVisibility(View.GONE);
+            return;
+        }
+        boolean appearing = wxText.getVisibility() != View.VISIBLE;
+        wxIcon.setImageDrawable(new Glyph(Weather.glyphFor(r.code, r.day)));
+        wxText.setText(r.temperature());
+        wxIcon.setVisibility(View.VISIBLE);
+        wxText.setVisibility(View.VISIBLE);
+        if (appearing) {
+            for (View v : new View[] { wxIcon, wxText }) {
+                v.setAlpha(0f);
+                v.animate().alpha(1f).setDuration(400).start();
+            }
+        }
+    }
+
     // ---------------------------------------------------------------- config
 
+    /**
+     * install.sh can pass "--es apps pkg1,pkg2", "--es city Uppsala" (or auto / off) and
+     * "--es stamp 123". The stamp stops a relaunch of the same intent from reapplying it.
+     */
     private boolean applyExtras(Intent intent) {
         if (intent == null) return false;
         String stamp = intent.getStringExtra(KEY_STAMP);
         if (stamp != null && stamp.equals(prefs.getString(KEY_STAMP, null))) return false;
+        boolean changed = false;
         String apps = intent.getStringExtra(KEY_APPS);
-        if (apps == null) return false;
-        SharedPreferences.Editor e = prefs.edit();
-        if (stamp != null) e.putString(KEY_STAMP, stamp);
-        if (apps.trim().isEmpty() || apps.trim().equals("auto")) e.remove(KEY_APPS);
-        else e.putString(KEY_APPS, apps.trim());
-        e.apply();
-        return true;
+        if (apps != null) {
+            if (apps.trim().isEmpty() || apps.trim().equals("auto")) prefs.edit().remove(KEY_APPS).apply();
+            else prefs.edit().putString(KEY_APPS, apps.trim()).apply();
+            changed = true;
+        }
+        String city = intent.getStringExtra("city");
+        if (city != null) {
+            if (city.equals("auto")) weather.setAuto();
+            else if (city.equals("off")) weather.setOff();
+            else weather.setCity(city);
+            changed = true;
+        }
+        if (changed && stamp != null) prefs.edit().putString(KEY_STAMP, stamp).apply();
+        return changed;
     }
 
-    private boolean mono() { return prefs.getBoolean(KEY_MONO, true); }
+    /** Glass icons (white logo on frosted glass) instead of colour icons. */
+    private boolean mono() { return prefs.getBoolean(KEY_MONO, false); }
 
     /**
      * Preview only: the emulator has none of the TV's apps, so scripts/preview.sh can push a
@@ -463,7 +644,7 @@ public class MainActivity extends Activity {
     private Entry entryFor(final String key) {
         if (key.startsWith("preview:")) {
             final String label = key.substring(8);
-            return new Entry(key, label, Glyph.letter(label), new Runnable() {
+            return new Entry(key, label, new AppIcon.Placeholder(label), new Runnable() {
                 @Override public void run() { Toast.makeText(MainActivity.this, "Preview: " + label, Toast.LENGTH_SHORT).show(); }
             });
         }
@@ -510,17 +691,35 @@ public class MainActivity extends Activity {
         return out;
     }
 
-    /** The icon to show: a white logo made from the app icon, or the colour icon. */
-    private Drawable iconFor(Entry e, int sizeAt1080) {
-        if (e.colour instanceof Glyph) return ((Glyph) e.colour).copy();
-        if (!mono()) return e.colour;
-        Bitmap m = monoCache.get(e.key);
-        if (m == null && !monoCache.containsKey(e.key)) {
-            m = Mono.glyph(e.colour, 96);
-            monoCache.put(e.key, m);
+    /**
+     * The dock and drawer icon: the app's own icon in colour, or its logo in white on frosted
+     * glass, both in the squircle shape. Built once per app, mode and size.
+     */
+    private Drawable iconFor(Entry e, int sizePx) {
+        boolean glass = mono();
+        String ck = e.key + "|" + glass + "|" + sizePx;
+        Bitmap b = iconCache.get(ck);
+        if (b == null) {
+            if (e.colour instanceof Glyph) {
+                Glyph g = ((Glyph) e.colour).copy();
+                if (glass) b = AppIcon.white(null, g, sizePx);
+                else if (e.key.equals(K_TVSET)) b = AppIcon.system(g, 0xFF98989D, 0xFF636366, sizePx);
+                else if (e.key.equals(K_STORE)) b = AppIcon.system(g, 0xFF34C759, 0xFF248A3D, sizePx);
+                else if (e.key.equals(K_LIVETV)) b = AppIcon.system(g, 0xFF0A84FF, 0xFF0060DF, sizePx);
+                else b = AppIcon.system(g, 0xFF48484A, 0xFF2C2C2E, sizePx);
+            } else if (glass) {
+                Bitmap m = monoCache.get(e.key);
+                if (m == null && !monoCache.containsKey(e.key)) {
+                    m = Mono.glyph(e.colour, 96);
+                    monoCache.put(e.key, m);
+                }
+                b = AppIcon.white(m, e.colour, sizePx);
+            } else {
+                b = AppIcon.colour(e.colour, sizePx);
+            }
+            iconCache.put(ck, b);
         }
-        if (m == null) return e.colour;
-        BitmapDrawable d = new BitmapDrawable(getResources(), m);
+        BitmapDrawable d = new BitmapDrawable(getResources(), b);
         d.setFilterBitmap(true);
         return d;
     }
@@ -530,32 +729,54 @@ public class MainActivity extends Activity {
     private void rebuildDock() {
         dirty = false;
         dock.removeAllViews();
-        List<String> keys = dockKeys();
+        List<Entry> entries = new ArrayList<>();
+        for (String k : dockKeys()) { Entry e = entryFor(k); if (e != null) entries.add(e); }
+        int n = Math.max(1, entries.size());
+
+        // Icon size so the whole dock fits on screen; the dock scrolls only past ICON_MIN.
+        float units = n + GAP_R * (n - 1) + 2 * PADX_R;
+        float s = Math.max(ICON_MIN, Math.min(ICON_MAX, DOCK_MAX_W / units));
+        iconPx = px(s);
+        int gap = px(s * GAP_R), padX = px(s * PADX_R), padV = px(s * PADV_R), pop = px(s * POP_R);
+        int glassH = iconPx + 2 * padV;
+        int contentW = n * iconPx + (n - 1) * gap + 2 * padX;
+        ViewGroup.LayoutParams bl = dockBox.getLayoutParams();
+        bl.width = Math.min(contentW, px(DOCK_MAX_W));
+        bl.height = glassH + pop;
+        dockBox.setLayoutParams(bl);
+        ViewGroup.LayoutParams gl = dockGlassView.getLayoutParams();
+        gl.height = glassH;
+        dockGlassView.setLayoutParams(gl);
+        dockGlass.setRadius(Math.min(glassH / 2f, px(s * RADIUS_R + PADV_R * s)));
+        dock.setPadding(padX, pop + padV, padX, padV);
+
         int firstId = View.NO_ID;
-        int i = 0;
-        for (String k : keys) {
-            Entry e = entryFor(k);
-            if (e == null) continue;
-            View v = dockItem(e, i, keys.size());
+        for (int i = 0; i < entries.size(); i++) {
+            View v = dockItem(entries.get(i), i, entries.size(), gap);
             if (firstId == View.NO_ID) firstId = v.getId();
             dock.addView(v);
             if (firstBuild) {
                 v.setAlpha(0f);
-                v.setTranslationY(px(12));
-                v.animate().alpha(1f).translationY(0).setStartDelay(60 + i * 35L).setDuration(320)
-                        .setInterpolator(new DecelerateInterpolator()).start();
+                v.setTranslationY(px(24));
+                v.animate().alpha(1f).translationY(0).setStartDelay(80 + i * 30L).setDuration(380)
+                        .setInterpolator(new DecelerateInterpolator(1.8f)).start();
             }
-            i++;
+        }
+        if (firstBuild) {
+            dockBox.setAlpha(0f);
+            dockBox.setTranslationY(px(40));
+            dockBox.animate().alpha(1f).translationY(0).setDuration(420).setInterpolator(new DecelerateInterpolator(1.8f)).start();
         }
         firstBuild = false;
-        if (keys.isEmpty()) {
-            TextView hint = text("Nothing in the dock yet. Press up, the gear, then \"Add or remove apps\".", 30, WHITE_DIM);
+        if (entries.isEmpty()) {
+            TextView hint = text("Nothing in the dock yet. Press up, open the grid, then Settings.", 28, WHITE_DIM);
             hint.setGravity(Gravity.CENTER);
-            dock.addView(hint, new LinearLayout.LayoutParams(
-                    screenW - px(DOCK_SIDE) * 2 - px(DOCK_PAD_X) * 2, px(ITEM_H)));
+            bl.width = px(1000);
+            dockBox.setLayoutParams(bl);
+            dock.addView(hint, new LinearLayout.LayoutParams(px(1000) - 2 * padX, iconPx));
         }
-        int downTo = firstId != View.NO_ID ? firstId : idGearBtn;
-        for (int j = 0; j < topBar.getChildCount(); j++) topBar.getChildAt(j).setNextFocusDownId(downTo);
+        int downTo = firstId != View.NO_ID ? firstId : idGridBtn;
+        for (int j = 0; j < statusBar.getChildCount(); j++) statusBar.getChildAt(j).setNextFocusDownId(downTo);
 
         if (overlay.getVisibility() == View.VISIBLE) return;
         View v = focusedKey == null ? null : dock.findViewWithTag(focusedKey);
@@ -563,51 +784,47 @@ public class MainActivity extends Activity {
             v = root.findViewById(Integer.parseInt(focusedKey.substring(4)));
         }
         if (v == null && dock.getChildCount() > 0) v = dock.getChildAt(0);
-        if (v == null) v = topBar.getChildAt(2);
+        if (v == null) v = statusBar.getChildAt(1);
         if (v != null) v.requestFocus();
     }
 
-    private View dockItem(final Entry e, final int index, final int count) {
-        final FrameLayout t = new FrameLayout(this);
+    /** One dock icon: no label. Focused, it grows from its base, rises and casts a shadow. */
+    private View dockItem(final Entry e, final int index, final int count, int gap) {
+        final ImageView t = new ImageView(this);
         t.setId(View.generateViewId());
         t.setTag(e.key);
         t.setFocusable(true);
         t.setFocusableInTouchMode(true);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(px(ITEM_W), px(ITEM_H));
-        lp.setMargins(px(ITEM_GAP), 0, px(ITEM_GAP), 0);
+        t.setContentDescription(e.label);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(iconPx, iconPx);
+        if (index > 0) lp.leftMargin = gap;
         t.setLayoutParams(lp);
-        t.setNextFocusUpId(idWallBtn);
+        t.setScaleType(ImageView.ScaleType.FIT_XY);
+        t.setImageDrawable(iconFor(e, iconPx));
+        t.setNextFocusUpId(idGridBtn);
+        // Colour icons cast a soft shadow that deepens as they rise. Glass icons are see-through,
+        // so a shadow would show through them as a dark square: they lift without one.
+        final boolean shadow = !mono();
+        final float corner = iconPx * 0.225f;
+        if (shadow) {
+            t.setOutlineProvider(new ViewOutlineProvider() {
+                @Override public void getOutline(View v, Outline o) { o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), corner); }
+            });
+            t.setElevation(px(3));
+        } else {
+            t.setOutlineProvider(null);
+        }
+        t.setPivotX(iconPx / 2f);
+        t.setPivotY(iconPx);
 
-        final GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0x00FFFFFF);
-        bg.setCornerRadius(px(ITEM_RADIUS));
-        t.setBackground(bg);
-
-        ImageView icon = new ImageView(this);
-        icon.setImageDrawable(iconFor(e, ITEM_ICON));
-        icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        FrameLayout.LayoutParams ip = new FrameLayout.LayoutParams(px(ITEM_ICON), px(ITEM_ICON));
-        ip.gravity = Gravity.CENTER_HORIZONTAL | Gravity.TOP;
-        ip.topMargin = px(42);
-        t.addView(icon, ip);
-
-        final TextView label = text(e.label, LABEL_SIZE, WHITE_DIM);
-        label.setGravity(Gravity.CENTER_HORIZONTAL);
-        label.setSingleLine(true);
-        label.setEllipsize(TextUtils.TruncateAt.END);
-        label.setPadding(px(14), 0, px(14), 0);
-        FrameLayout.LayoutParams lbl = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lbl.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
-        lbl.bottomMargin = px(28);
-        t.addView(label, lbl);
-
+        final float lift = iconPx * LIFT_R;
         t.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override public void onFocusChange(View v, boolean f) {
                 if (f) focusedKey = (String) v.getTag();
-                animateColor(bg, f ? FOCUS_BG : 0x00FFFFFF);
-                label.setTextColor(f ? WHITE : WHITE_DIM);
-                scaleTo(v, f ? GROW_DOCK : 1f, 0);
+                v.animate().scaleX(f ? GROW_DOCK : 1f).scaleY(f ? GROW_DOCK : 1f)
+                        .translationY(f ? -lift : 0).translationZ(f && shadow ? px(22) : 0)
+                        .setDuration(f ? 260 : 200)
+                        .setInterpolator(f ? new OvershootInterpolator(1.4f) : new DecelerateInterpolator()).start();
             }
         });
         t.setOnClickListener(new View.OnClickListener() {
@@ -644,26 +861,33 @@ public class MainActivity extends Activity {
                 .setInterpolator(new DecelerateInterpolator(1.6f)).start();
         animateDim(0x00000000, 0x59000000);
         dockBox.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
-        topBar.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+        statusBar.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
         View first = content.findViewWithTag("first");
         if (first != null) first.requestFocus(); else content.requestFocus();
     }
 
     private void hideOverlay(boolean animate) {
         final View content = overlay.getChildCount() > 0 ? overlay.getChildAt(0) : null;
+        // Remember where focus came from now: once the panel goes, Android hands focus to the
+        // first free button (Wi-Fi), and that button would overwrite focusedKey.
+        final String back = focusedKey;
         dockBox.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
-        topBar.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
-        for (int i = glasses.size() - 1; i >= 0; i--) if (glasses.get(i) != dockGlass) glasses.remove(i);
+        statusBar.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
+        for (int i = glasses.size() - 1; i >= 0; i--) {
+            Glass g = glasses.get(i);
+            if (g != dockGlass && g != statusGlass) glasses.remove(i);   // drop only the panel's glass
+        }
         Runnable done = new Runnable() {
             @Override public void run() {
-                overlay.setVisibility(View.GONE);
-                overlay.removeAllViews();
-                View v = focusedKey == null ? null : dock.findViewWithTag(focusedKey);
-                if (v == null && focusedKey != null && focusedKey.startsWith("top:")) {
-                    v = root.findViewById(Integer.parseInt(focusedKey.substring(4)));
+                View v = back == null ? null : dock.findViewWithTag(back);
+                if (v == null && back != null && back.startsWith("top:")) {
+                    v = root.findViewById(Integer.parseInt(back.substring(4)));
                 }
                 if (v == null && dock.getChildCount() > 0) v = dock.getChildAt(0);
-                if (v != null) v.requestFocus();
+                if (v != null) v.requestFocus();      // before the panel goes, so focus never jumps
+                focusedKey = back;
+                overlay.setVisibility(View.GONE);
+                overlay.removeAllViews();
             }
         };
         if (!animate || content == null) { done.run(); return; }
@@ -732,6 +956,57 @@ public class MainActivity extends Activity {
         return t;
     }
 
+    /** Type a city for the weather. OK on the field opens the TV's keyboard. */
+    private View citySheet() {
+        FrameLayout s = sheet(560, 300, 800, 380);
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(px(48), px(40), px(48), px(32));
+        col.setClipChildren(false);
+        TextView title = text("Weather city", 38, WHITE);
+        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        title.setPadding(0, 0, 0, px(24));
+        col.addView(title);
+        final EditText field = new EditText(this);
+        field.setSingleLine(true);
+        field.setText(prefs.getString(Weather.CITY, ""));
+        field.setHint("Stockholm");
+        field.setTextColor(WHITE);
+        field.setHintTextColor(WHITE_FAINT);
+        field.setTextSize(TypedValue.COMPLEX_UNIT_PX, px(32));
+        field.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        field.setPadding(px(32), px(18), px(32), px(18));
+        final GradientDrawable fbg = new GradientDrawable();
+        fbg.setCornerRadius(px(999));
+        fbg.setColor(CHIP_BG);
+        fbg.setStroke(px(2), 0x00FFFFFF);
+        field.setBackground(fbg);
+        field.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override public void onFocusChange(View v, boolean f) { fbg.setStroke(px(2), f ? 0xCCFFFFFF : 0x00FFFFFF); }
+        });
+        field.setTag("first");
+        col.addView(field, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        final Runnable save = new Runnable() {
+            @Override public void run() {
+                String c = field.getText().toString().trim();
+                if (!c.isEmpty()) { weather.setCity(c); refreshWeather(true); }
+                showOverlay(settingsPanel());
+            }
+        };
+        field.setOnEditorActionListener(new TextView.OnEditorActionListener() {
+            @Override public boolean onEditorAction(TextView v, int action, KeyEvent ev) { save.run(); return true; }
+        });
+        LinearLayout buttons = chipRow();
+        buttons.setPadding(px(CHIP_PAD), px(24), px(CHIP_PAD), 0);
+        buttons.addView(chip("Save", true, save));
+        buttons.addView(chip("Cancel", false, new Runnable() {
+            @Override public void run() { showOverlay(settingsPanel()); }
+        }));
+        col.addView(buttons);
+        s.addView(col);
+        return s;
+    }
+
     private View editSheet(final Entry e, final int index, final int count) {
         FrameLayout s = sheet(660, 290, 600, 500);
         LinearLayout col = new LinearLayout(this);
@@ -784,9 +1059,22 @@ public class MainActivity extends Activity {
         col.setOrientation(LinearLayout.VERTICAL);
         col.setPadding(px(56), px(40), px(56), px(24));
 
+        LinearLayout headRow = new LinearLayout(this);
+        headRow.setOrientation(LinearLayout.HORIZONTAL);
+        headRow.setGravity(Gravity.CENTER_VERTICAL);
+        headRow.setClipChildren(false);
         TextView title = text(addMode ? "Dock" : "All apps", 40, WHITE);
         title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        col.addView(title);
+        headRow.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        if (!addMode) {
+            TextView set = chip("Settings", false, new Runnable() {
+                @Override public void run() { showOverlay(settingsPanel()); }
+            });
+            ((LinearLayout.LayoutParams) set.getLayoutParams()).rightMargin = 0;
+            ((LinearLayout.LayoutParams) set.getLayoutParams()).bottomMargin = 0;
+            headRow.addView(set);
+        }
+        col.addView(headRow);
         TextView hint = text(addMode ? "OK adds to or removes from the dock" : "OK opens  ·  long press adds to the dock  ·  BACK closes", 24, WHITE_FAINT);
         hint.setPadding(0, px(6), 0, px(22));
         col.addView(hint);
@@ -843,11 +1131,11 @@ public class MainActivity extends Activity {
         t.setBackground(bg);
 
         ImageView icon = new ImageView(this);
-        icon.setImageDrawable(iconFor(e, GRID_ICON));
+        icon.setImageDrawable(iconFor(e, px(GRID_ICON)));
         icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
         FrameLayout.LayoutParams ip = new FrameLayout.LayoutParams(px(GRID_ICON), px(GRID_ICON));
         ip.gravity = Gravity.CENTER_HORIZONTAL | Gravity.TOP;
-        ip.topMargin = px(34);
+        ip.topMargin = px(18);
         t.addView(icon, ip);
 
         final TextView label = text(e.label, 25, WHITE_DIM);
@@ -858,7 +1146,7 @@ public class MainActivity extends Activity {
         FrameLayout.LayoutParams lbl = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lbl.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
-        lbl.bottomMargin = px(22);
+        lbl.bottomMargin = px(16);
         t.addView(label, lbl);
 
         final ImageView badge = new ImageView(this);
@@ -988,15 +1276,32 @@ public class MainActivity extends Activity {
         }));
         body.addView(r1);
 
-        body.addView(heading("Logos"));
+        body.addView(heading("Icons"));
         LinearLayout r2 = chipRow();
-        r2.addView(chip("White", mono(), new Runnable() {
-            @Override public void run() { prefs.edit().putBoolean(KEY_MONO, true).apply(); rebuildDock(); showOverlay(settingsPanel()); }
-        }));
         r2.addView(chip("Colour", !mono(), new Runnable() {
             @Override public void run() { prefs.edit().putBoolean(KEY_MONO, false).apply(); rebuildDock(); showOverlay(settingsPanel()); }
         }));
+        r2.addView(chip("Glass", mono(), new Runnable() {
+            @Override public void run() { prefs.edit().putBoolean(KEY_MONO, true).apply(); rebuildDock(); showOverlay(settingsPanel()); }
+        }));
         body.addView(r2);
+
+        String wmode = weather.mode();
+        Weather.Reading wr = weather.cached();
+        String place = wr == null ? "" : wr.place;
+        body.addView(heading(place.isEmpty() || wmode.equals("off") ? "Weather" : "Weather  ·  " + place));
+        LinearLayout rw = chipRow();
+        rw.addView(chip("Automatic location", wmode.equals("auto"), new Runnable() {
+            @Override public void run() { weather.setAuto(); refreshWeather(true); showOverlay(settingsPanel()); }
+        }));
+        String city = prefs.getString(Weather.CITY, "");
+        rw.addView(chip(wmode.equals("city") && !city.isEmpty() ? "City: " + city : "Choose a city", wmode.equals("city"), new Runnable() {
+            @Override public void run() { showOverlay(citySheet()); }
+        }));
+        rw.addView(chip("Off", wmode.equals("off"), new Runnable() {
+            @Override public void run() { weather.setOff(); showWeather(null); showOverlay(settingsPanel()); }
+        }));
+        body.addView(rw);
 
         body.addView(heading("Dock"));
         LinearLayout r3 = chipRow();

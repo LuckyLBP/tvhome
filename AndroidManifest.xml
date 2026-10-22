@@ -1,14 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="dev.lucas.tvhome"
-    android:versionCode="5"
-    android:versionName="0.3.1">
+    android:versionCode="6"
+    android:versionName="0.4.0">
 
     <!-- Philips TPM171E ships Android TV 8.0 = API 26. -->
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
 
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+
+    <!-- Weather in the header (Open-Meteo, plus an approximate location lookup). It can be
+         switched off in Settings; then the launcher makes no network requests. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- The Wi-Fi indicator top right: connection type and signal level. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 
     <!-- Needed on Android 11+ to see other apps. Ignored on Android 8. -->
     <queries>
