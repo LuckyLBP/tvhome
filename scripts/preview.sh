@@ -10,6 +10,8 @@
 #   sh scripts/preview.sh photos <folder>  # push photos into the emulator only
 #   sh scripts/preview.sh dock [labels]    # placeholder dock items named like the TV's apps
 #   sh scripts/preview.sh dock off         # back to the emulator's real apps
+#   sh scripts/preview.sh icons <folder>   # real icon files for the dock: Label|name in the dock
+#                                          # list uses <folder>/name.png or name_bg.png + name_fg.png
 #   sh scripts/preview.sh network wifi:2   # show a network state: wifi[:1-3], ethernet, offline, real
 #   sh scripts/preview.sh stop
 #
@@ -163,6 +165,17 @@ case "${1:-}" in
     e shell am force-stop "$PKG"
     e shell am start -W -n "$ACTIVITY" >/dev/null
     echo "Preview dock: ${2:-TV app names}"
+    ;;
+
+  icons)
+    dir=${2:-}
+    [ -d "$dir" ] || { echo "icons: give a folder of .png files"; exit 1; }
+    D=/sdcard/Android/data/$PKG/files/preview-icons
+    e shell mkdir -p "$D"
+    for f in "$dir"/*.png; do e push "$f" "$D/" >/dev/null; done
+    e shell am force-stop "$PKG"
+    e shell am start -W -n "$ACTIVITY" >/dev/null
+    echo "Preview icons: $(ls "$dir"/*.png | wc -l | tr -d ' ') files"
     ;;
 
   network)

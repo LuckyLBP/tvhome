@@ -255,6 +255,31 @@ off and squeezed the weather to zero width; and closing a panel let Android
 hand focus to the first free button, which then overwrote the record of where
 focus should return to.
 
+## Two icons that looked wrong on the TV
+
+With 0.4.1 on the TV, two of thirteen icons looked off. The preview gained a way
+to load an app's real icon files (pulled from the TV's APKs, kept off the repo)
+so the renderer could be tested on exactly those.
+
+- **Spotify** ships a two-layer icon whose background layer is fully
+  transparent; only the green circle is drawn, with the waves as cut-outs. The
+  renderer drew the layers as given, so the tile was see-through and the dock
+  glass showed through. Now a two-layer icon with an empty background is
+  composed and sorted like any other icon, and a round badge with enclosed
+  holes sits on a contrasting tile (near-black for a light badge) instead of
+  merging into its own colour, which would fill the holes in. Holes are counted
+  as part of the badge's area, or the circle would not register as round.
+  Result: Spotify's own look, a green circle with black waves on black.
+- **SkyShowtime** turned out not to be a bug. Its icon really is "sky" plus
+  Showtime's circular "SHO" mark, spanning 15% to 85% of the width, and the
+  renderer reproduced it exactly. A "breathing room" variant (icon shrunk, margin
+  filled with a blurred extension of its own background) was prototyped and
+  rejected: the blur smeared the white logo into the margins.
+
+The change was kept narrow on purpose: only icons with enclosed holes or an
+empty background layer render differently, so the eleven icons already checked
+on the TV are unaffected.
+
 ## Numbers
 
 - Java: eight files, about 2,900 lines, no libraries, no XML layouts.

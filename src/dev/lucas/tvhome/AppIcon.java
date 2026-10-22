@@ -61,11 +61,22 @@ final class AppIcon {
                 c.drawColor(0xFF3A3A3C);
             } else if (Build.VERSION.SDK_INT >= 26 && icon instanceof AdaptiveIconDrawable) {
                 AdaptiveIconDrawable a = (AdaptiveIconDrawable) icon;
-                int inset = Math.round(size * 0.25f);     // layers are 108dp, the visible part 72dp
                 Drawable bg = a.getBackground(), fg = a.getForeground();
-                if (bg != null) { bg.setBounds(-inset, -inset, size + inset, size + inset); bg.draw(c); }
-                else c.drawColor(0xFFFFFFFF);
-                if (fg != null) { fg.setBounds(-inset, -inset, size + inset, size + inset); fg.draw(c); }
+                if (bg == null || cover(bg) < 0.5f) {
+                    // An empty background layer (Spotify ships one): compose what is visible and
+                    // sort it like any other icon, so it gets a proper tile instead of none.
+                    int S = 192, in = Math.round(S * 0.25f);
+                    Bitmap comp = Bitmap.createBitmap(S, S, Bitmap.Config.ARGB_8888);
+                    Canvas cc = new Canvas(comp);
+                    if (bg != null) { bg.setBounds(-in, -in, S + in, S + in); bg.draw(cc); }
+                    if (fg != null) { fg.setBounds(-in, -in, S + in, S + in); fg.draw(cc); }
+                    drawLegacy(c, new android.graphics.drawable.BitmapDrawable(null, comp), size);
+                } else {
+                    int inset = Math.round(size * 0.25f);     // layers are 108dp, the visible part 72dp
+                    bg.setBounds(-inset, -inset, size + inset, size + inset);
+                    bg.draw(c);
+                    if (fg != null) { fg.setBounds(-inset, -inset, size + inset, size + inset); fg.draw(c); }
+                }
             } else {
                 drawLegacy(c, icon, size);
             }
@@ -181,18 +192,32 @@ final class AppIcon {
             }
             if (count == 0) { c.drawColor(0xFF3A3A3C); src.recycle(); return; }
             int bw = x1 - x0 + 1, bh = y1 - y0 + 1;
-            float coverage = count / (float) (bw * bh);
+            // The shape's area includes holes it encloses (Spotify's waves are cut-outs).
+            int[] st = shapeStats(p, S, x0, y0, x1, y1);
+            float coverage = st[0] / (float) (bw * bh);
             boolean badge = coverage > 0.62f && Math.abs(bw - bh) < Math.max(bw, bh) * 0.25f;
             if (badge) {
                 int best = 0;
                 for (int q = 1; q < 4096; q++) if (hist[q] > hist[best]) best = q;
                 int edgeColour = 0xFF000000 | (int) ((hr[best] / Math.max(1, hist[best])) << 16
                         | (hg[best] / Math.max(1, hist[best])) << 8 | (hb[best] / Math.max(1, hist[best])));
-                c.drawColor(edgeColour);
-                // Scale the badge so it overfills a little: its round edge disappears into the plate.
-                float target = size * 1.04f, sc2 = target / Math.max(bw, bh);
-                float dw = S * sc2, dx = (size - bw * sc2) / 2f - x0 * sc2, dy = (size - bh * sc2) / 2f - y0 * sc2;
-                c.drawBitmap(src, null, new RectF(dx, dy, dx + dw, dy + dw), fp);
+                // Holes need a tile behind them: merging into the badge's own colour would fill
+                // them in. Near-black or white, whichever contrasts with the badge.
+                int detail = st[1] > st[0] * 0.03f ? (st[2] > 110 ? 0xFF121212 : 0xFFFFFFFF) : 0;
+                if (detail == 0) {
+                    // A plain badge: its round edge disappears into a plate of its own colour.
+                    c.drawColor(edgeColour);
+                    float target = size * 1.04f, sc2 = target / Math.max(bw, bh);
+                    float dw = S * sc2, dx = (size - bw * sc2) / 2f - x0 * sc2, dy = (size - bh * sc2) / 2f - y0 * sc2;
+                    c.drawBitmap(src, null, new RectF(dx, dy, dx + dw, dy + dw), fp);
+                } else {
+                    // A badge with cut-outs (Spotify's waves): merging would fill them in, so the
+                    // badge sits whole on a contrasting tile, the way the app presents itself.
+                    c.drawColor(detail);
+                    float target = size * 0.80f, sc2 = target / Math.max(bw, bh);
+                    float dw = S * sc2, dx = (size - bw * sc2) / 2f - x0 * sc2, dy = (size - bh * sc2) / 2f - y0 * sc2;
+                    c.drawBitmap(src, null, new RectF(dx, dy, dx + dw, dy + dw), fp);
+                }
             } else {
                 // Bare logo: white plate for dark or colourful logos, near-black for light ones.
                 long avg = lum / count;
@@ -206,6 +231,59 @@ final class AppIcon {
     }
 
     private static int alpha(int v) { return (v >>> 24) & 255; }
+
+    /** Share of a drawable's area that is opaque. */
+    private static float cover(Drawable d) {
+        int S = 32;
+        Bitmap b = Bitmap.createBitmap(S, S, Bitmap.Config.ARGB_8888);
+        d.setBounds(0, 0, S, S);
+        d.draw(new Canvas(b));
+        int[] p = new int[S * S];
+        b.getPixels(p, 0, S, 0, 0, S, S);
+        b.recycle();
+        int n = 0;
+        for (int v : p) if (alpha(v) > 200) n++;
+        return n / (float) (S * S);
+    }
+
+    /**
+     * {area, holes, average luminance} of the shape inside a bounding box. Area counts every
+     * pixel not reachable from the box edge through transparency, so enclosed holes are part
+     * of the shape; holes counts those enclosed transparent pixels.
+     */
+    private static int[] shapeStats(int[] p, int S, int x0, int y0, int x1, int y1) {
+        int w = x1 - x0 + 1, h = y1 - y0 + 1;
+        byte[] outside = new byte[w * h];
+        int[] queue = new int[w * h];
+        int head = 0, tail = 0;
+        for (int x = 0; x < w; x++) for (int y : new int[] { 0, h - 1 }) {
+            int k = y * w + x;
+            if (outside[k] == 0 && alpha(p[(y0 + y) * S + x0 + x]) <= 200) { outside[k] = 1; queue[tail++] = k; }
+        }
+        for (int y = 0; y < h; y++) for (int x : new int[] { 0, w - 1 }) {
+            int k = y * w + x;
+            if (outside[k] == 0 && alpha(p[(y0 + y) * S + x0 + x]) <= 200) { outside[k] = 1; queue[tail++] = k; }
+        }
+        while (head < tail) {
+            int k = queue[head++], x = k % w, y = k / w;
+            int[][] nb = { { x - 1, y }, { x + 1, y }, { x, y - 1 }, { x, y + 1 } };
+            for (int[] q : nb) {
+                if (q[0] < 0 || q[1] < 0 || q[0] >= w || q[1] >= h) continue;
+                int n = q[1] * w + q[0];
+                if (outside[n] == 0 && alpha(p[(y0 + q[1]) * S + x0 + q[0]]) <= 200) { outside[n] = 1; queue[tail++] = n; }
+            }
+        }
+        int area = 0, holes = 0, opaque = 0;
+        long lum = 0;
+        for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) {
+            if (outside[y * w + x] == 1) continue;
+            area++;
+            int v = p[(y0 + y) * S + x0 + x];
+            if (alpha(v) <= 200) holes++;
+            else { opaque++; lum += luminance(v); }
+        }
+        return new int[] { area, holes, opaque == 0 ? 0 : (int) (lum / opaque) };
+    }
 
     private static int luminance(int v) {
         return (((v >> 16) & 255) * 299 + ((v >> 8) & 255) * 587 + (v & 255) * 114) / 1000;

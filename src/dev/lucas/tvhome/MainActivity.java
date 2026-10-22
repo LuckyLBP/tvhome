@@ -675,8 +675,14 @@ public class MainActivity extends Activity {
 
     private Entry entryFor(final String key) {
         if (key.startsWith("preview:")) {
-            final String label = key.substring(8);
-            return new Entry(key, label, new AppIcon.Placeholder(label), new Runnable() {
+            // "Label" or "Label|icon": icon names real icon files pushed by preview.sh into
+            // files/preview-icons/ (icon.png, or icon_bg.png + icon_fg.png for a two-layer icon).
+            String spec = key.substring(8);
+            int bar = spec.indexOf('|');
+            final String label = bar < 0 ? spec : spec.substring(0, bar);
+            Drawable icon = bar < 0 ? null : previewIcon(spec.substring(bar + 1));
+            if (icon == null) icon = new AppIcon.Placeholder(label);
+            return new Entry(key, label, icon, new Runnable() {
                 @Override public void run() { Toast.makeText(MainActivity.this, "Preview: " + label, Toast.LENGTH_SHORT).show(); }
             });
         }
@@ -712,6 +718,24 @@ public class MainActivity extends Activity {
         return new Entry(key, label, appIcon(pkg), new Runnable() {
             @Override public void run() { launch(pkg); }
         });
+    }
+
+    /** Preview only: a real app icon from files/preview-icons/, legacy or two-layer. */
+    private Drawable previewIcon(String name) {
+        try {
+            java.io.File dir = new java.io.File(getExternalFilesDir(null), "preview-icons");
+            java.io.File one = new java.io.File(dir, name + ".png");
+            if (one.exists()) {
+                return new BitmapDrawable(getResources(), android.graphics.BitmapFactory.decodeFile(one.getAbsolutePath()));
+            }
+            java.io.File bg = new java.io.File(dir, name + "_bg.png"), fg = new java.io.File(dir, name + "_fg.png");
+            if (bg.exists() && fg.exists()) {
+                return new android.graphics.drawable.AdaptiveIconDrawable(
+                        new BitmapDrawable(getResources(), android.graphics.BitmapFactory.decodeFile(bg.getAbsolutePath())),
+                        new BitmapDrawable(getResources(), android.graphics.BitmapFactory.decodeFile(fg.getAbsolutePath())));
+            }
+        } catch (Throwable ignored) { }
+        return null;
     }
 
     /** Everything on the TV: apps, inputs, Live TV, Play Store, TV settings. */

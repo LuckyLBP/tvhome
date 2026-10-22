@@ -101,8 +101,10 @@ See [docs/setup.md](docs/setup.md) for the long version and
 that it scrolls with soft edges. A focused icon grows from its base, rises out
 of the dock and casts a shadow. Icons are the apps' own, redrawn in Apple's
 rounded-square shape: adaptive icons use their layers, square icons are cropped,
-round badges are set on a plate of their own outer colour, bare logos on white
-or near-black. Nothing is shipped; everything is made on the TV.
+round badges are set on a plate of their own outer colour (or, if they have
+cut-outs like Spotify's waves, on near-black or white so the cut-outs stay
+visible), bare logos on white or near-black. Nothing is shipped; everything is
+made on the TV.
 
 **Top right**, the Wi-Fi symbol shows signal strength (‹···› on Ethernet, as on a
 Mac; crossed out when offline) and opens network settings. The glass under it
@@ -144,6 +146,10 @@ sh scripts/preview.sh photos ~/Pictures/tv # your photos, emulator only
 sh scripts/preview.sh watch                # rebuild + reload on every save
 ```
 
+`icons <folder>` loads real icon files into the emulator for testing the icon
+renderer: in the dock list, `Spotify|spotify` uses `spotify.png`, or
+`spotify_bg.png` + `spotify_fg.png` for a two-layer icon. Keep those files out
+of the repo; they are the apps' artwork.
 `network wifi:1|wifi:2|wifi:3|ethernet|offline|real` shows each state of the
 status icon (the emulator itself is wired). `key up|down|left|right|ok|longok|back|home` drives it like the remote and
 `shot <name>` saves a screenshot to `.local/preview/`. The script only ever
